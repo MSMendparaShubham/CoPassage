@@ -184,16 +184,6 @@ export default function App() {
             <a href="#faq" className="hover:text-[#0F2A4A] transition-colors">
               FAQ
             </a>
-            <a
-              href="https://docs.google.com/forms/d/e/1FAIpQLSfSQAF_tL5c5lXM7jVG2VBDC27VMEVuQHMTQ8OAs7pycn1vFw/viewform"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="hover:bg-[#CAFFA6] transition-all flex items-center gap-1.5 bg-[#CAFFA6]/60 text-[#0F2A4A] px-3 py-1 rounded-full border border-[#0F2A4A]/25 shadow-xs font-black text-[11px]"
-            >
-              <span className="w-2 h-2 rounded-full bg-emerald-600 animate-pulse"></span>
-              <span>We&apos;re Hiring!</span>
-              <ExternalLink className="w-3 h-3 text-[#0F2A4A]" />
-            </a>
           </div>
 
           {/* Action CTAs */}
@@ -212,14 +202,11 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => setViewMode('rider')}
-                  className="bg-[#CAFFA6] hover:bg-[#b8f78f] text-[#0F2A4A] text-xs font-extrabold px-3 py-1.5 rounded-full border-2 border-[#0F2A4A] flex items-center gap-1.5 shadow-xs cursor-pointer active:translate-y-0.5 transition-all"
+                  className="bg-[#CAFFA6] hover:bg-[#b8f78f] text-[#0F2A4A] text-xs font-black px-4 py-1.5 rounded-full border-2 border-[#0F2A4A] shadow-[0_2px_0_#0F2A4A] flex items-center gap-1.5 cursor-pointer active:translate-y-0.5 transition-all"
                   title="Open Rider Coordination"
                 >
-                  <User className="w-3.5 h-3.5" />
-                  <span>{currentUser.name}</span>
-                  <span className="bg-[#0F2A4A] text-[#CAFFA6] text-[10px] px-1.5 py-0.2 rounded-full font-mono">
-                    ₹50
-                  </span>
+                  <span>Open Rider App</span>
+                  <ArrowRight className="w-3.5 h-3.5 stroke-[2.5]" />
                 </button>
                 <button
                   type="button"
