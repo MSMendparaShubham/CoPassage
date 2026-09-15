@@ -190,6 +190,7 @@ export default function App() {
           scenarioMode={scenarioMode}
           onClearScenario={() => setScenarioMode(null)}
           onSwitchScenario={(id) => setScenarioMode(id)}
+          onUpdateUser={(updated) => setCurrentUser(updated)}
         />
       </>
     );

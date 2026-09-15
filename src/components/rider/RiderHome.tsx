@@ -15,6 +15,7 @@ interface RiderHomeProps {
   scenarioMode?: string | null;
   onClearScenario?: () => void;
   onSwitchScenario?: (id: string) => void;
+  onUpdateUser?: (updatedUser: AuthedUser) => void;
 }
 
 export const RiderHome: React.FC<RiderHomeProps> = ({
@@ -25,6 +26,7 @@ export const RiderHome: React.FC<RiderHomeProps> = ({
   scenarioMode,
   onClearScenario,
   onSwitchScenario,
+  onUpdateUser,
 }) => {
   const [activeTab, setActiveTab] = useState<'match' | 'activity' | 'profile'>('match');
   const [routeIntent, setRouteIntent] = useState<RouteIntentData | null>(null);
@@ -268,7 +270,7 @@ export const RiderHome: React.FC<RiderHomeProps> = ({
             )
           )}
           {activeTab === 'activity' && <ActivityView user={user} />}
-          {activeTab === 'profile' && <ProfileView user={user} onSignOut={onSignOut} />}
+          {activeTab === 'profile' && <ProfileView user={user} onSignOut={onSignOut} onUpdateUser={onUpdateUser} />}
         </div>
       </main>
 

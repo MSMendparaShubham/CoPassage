@@ -153,6 +153,12 @@ export interface AuthedUser {
   name: string;
   phone: string;
   role: string;
+  email?: string;
+  gender?: 'female' | 'male' | 'other' | 'prefer_not_to_say';
+  emergencyContactName?: string;
+  emergencyContactPhone?: string;
+  preferredCorridor?: string;
+  bio?: string;
 }
 
 export interface Profile {
