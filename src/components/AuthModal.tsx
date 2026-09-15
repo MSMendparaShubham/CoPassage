@@ -29,6 +29,12 @@ interface AuthModalProps {
   onSuccess?: (user: { name: string; phone: string; role: string }) => void;
 }
 
+declare global {
+  interface Window {
+    recaptchaVerifier?: RecaptchaVerifier;
+  }
+}
+
 export const AuthModal: React.FC<AuthModalProps> = ({
   isOpen,
   onClose,
@@ -49,45 +55,36 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   const confirmationResultRef = useRef<ConfirmationResult | null>(null);
-  const recaptchaVerifierRef = useRef<RecaptchaVerifier | null>(null);
-
-  useEffect(() => {
-    return () => {
-      if (recaptchaVerifierRef.current) {
-        try {
-          recaptchaVerifierRef.current.clear();
-        } catch {
-          // ignore
-        }
-      }
-    };
-  }, []);
 
   if (!isOpen) return null;
 
-  // Initialize invisible reCAPTCHA for Firebase Phone Auth
-  const setupRecaptcha = () => {
-    if (recaptchaVerifierRef.current) {
-      try {
-        recaptchaVerifierRef.current.clear();
-      } catch {
-        // ignore
-      }
+  // Safely get or create invisible reCAPTCHA verifier for Firebase Phone Auth
+  const getOrCreateRecaptcha = () => {
+    if (window.recaptchaVerifier) {
+      return window.recaptchaVerifier;
     }
 
-    try {
-      recaptchaVerifierRef.current = new RecaptchaVerifier(auth, 'recaptcha-container', {
-        size: 'invisible',
-        callback: () => {
-          // reCAPTCHA solved
-        },
-        'expired-callback': () => {
-          setErrorMessage('reCAPTCHA expired. Please try sending OTP again.');
-        },
-      });
-    } catch (err: any) {
-      console.warn('reCAPTCHA setup notice:', err?.message);
+    let container = document.getElementById('recaptcha-container');
+    if (!container) {
+      container = document.createElement('div');
+      container.id = 'recaptcha-container';
+      document.body.appendChild(container);
+    } else {
+      container.innerHTML = '';
     }
+
+    const verifier = new RecaptchaVerifier(auth, 'recaptcha-container', {
+      size: 'invisible',
+      callback: () => {
+        // reCAPTCHA solved
+      },
+      'expired-callback': () => {
+        setErrorMessage('reCAPTCHA expired. Please try sending OTP again.');
+      },
+    });
+
+    window.recaptchaVerifier = verifier;
+    return verifier;
   };
 
   const handleSendOtp = async (e: React.FormEvent) => {
@@ -104,12 +101,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
     if (hasFirebaseKey) {
       try {
-        setupRecaptcha();
+        const verifier = getOrCreateRecaptcha();
         const formattedPhone = `+91${phone}`;
         const confirmation = await signInWithPhoneNumber(
           auth,
           formattedPhone,
-          recaptchaVerifierRef.current as RecaptchaVerifier
+          verifier
         );
         confirmationResultRef.current = confirmation;
         setIsLoading(false);
@@ -117,9 +114,32 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       } catch (err: any) {
         console.error('Firebase Phone Auth Error:', err);
         setIsLoading(false);
-        setErrorMessage(
-          err?.message || 'Failed to send OTP. Please check your Firebase settings or phone number.'
-        );
+
+        // Reset verifier on error so subsequent attempts don't collide
+        if (window.recaptchaVerifier) {
+          try {
+            window.recaptchaVerifier.clear();
+          } catch {
+            // ignore
+          }
+          window.recaptchaVerifier = undefined;
+        }
+        const container = document.getElementById('recaptcha-container');
+        if (container) {
+          container.innerHTML = '';
+        }
+
+        let userFriendlyError = err?.message || 'Failed to send OTP.';
+        if (err?.code === 'auth/operation-not-allowed') {
+          userFriendlyError =
+            'Phone auth or SMS region not enabled. Please enable Phone provider & India (+91) in Firebase Console under Authentication > Settings > SMS region policy.';
+        } else if (err?.code === 'auth/too-many-requests') {
+          userFriendlyError = 'Too many requests. Please wait a moment or use a test phone number.';
+        } else if (err?.code === 'auth/invalid-phone-number') {
+          userFriendlyError = 'Invalid phone number format.';
+        }
+
+        setErrorMessage(userFriendlyError);
       }
     } else {
       // Demo simulation fallback when Firebase keys are pending
