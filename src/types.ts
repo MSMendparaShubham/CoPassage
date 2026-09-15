@@ -141,3 +141,58 @@ export const BRAND_PALETTE: BrandColor[] = [
     contrastRatio: '5.1:1 vs #0F2A4A (AA/AAA Pass)',
   },
 ];
+
+export interface AuthedUser {
+  uid: string;
+  name: string;
+  phone: string;
+  role: string;
+}
+
+export interface RiderPost {
+  id: string;
+  host_uid: string;
+  host_name: string;
+  host_phone: string;
+  destination: string;
+  fare: number;
+  seats_available: number;
+  current_lat: number;
+  current_lng: number;
+  status: 'active' | 'matched' | 'completed' | 'cancelled';
+  last_seen_at: string;
+  created_at: string;
+}
+
+export interface JoinRequest {
+  id: string;
+  post_id: string;
+  requester_uid: string;
+  requester_name: string;
+  requester_phone: string;
+  status: 'pending' | 'accepted' | 'rejected' | 'cancelled';
+  requester_lat: number | null;
+  requester_lng: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RideMessage {
+  id: string;
+  post_id: string;
+  sender_uid: string;
+  sender_name: string;
+  content: string;
+  created_at: string;
+}
+
+export interface SosEvent {
+  id: string;
+  post_id: string;
+  triggered_by_uid: string;
+  triggered_by_name: string;
+  triggered_by_phone: string;
+  lat: number | null;
+  lng: number | null;
+  created_at: string;
+}

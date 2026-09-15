@@ -1,7 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { VideoPlayer } from './components/VideoPlayer';
 import { IntroVideoOverlay } from './components/IntroVideoOverlay';
 import { AuthModal } from './components/AuthModal';
+import { RiderHome } from './components/rider/RiderHome';
+import { AuthedUser } from './types';
+import { auth } from './firebase';
 import {
   Sparkles,
   ShieldCheck,
@@ -30,7 +33,24 @@ export default function App() {
   // Authentication Modal State
   const [isAuthOpen, setIsAuthOpen] = useState<boolean>(false);
   const [authMode, setAuthMode] = useState<'signin' | 'signup'>('signin');
-  const [currentUser, setCurrentUser] = useState<{ name: string; phone: string; role: string } | null>(null);
+  const [currentUser, setCurrentUser] = useState<AuthedUser | null>(null);
+
+  // Sync Firebase Auth state
+  useEffect(() => {
+    const unsubscribe = auth.onAuthStateChanged((fbUser) => {
+      if (fbUser) {
+        setCurrentUser({
+          uid: fbUser.uid,
+          name: fbUser.displayName || 'CoPassage Commuter',
+          phone: fbUser.phoneNumber || '',
+          role: 'commuter',
+        });
+      } else {
+        setCurrentUser(null);
+      }
+    });
+    return () => unsubscribe();
+  }, []);
 
   // Interactive "Whatever the Price" Split Calculator State
   const [fareAmount, setFareAmount] = useState<number>(240);
@@ -94,6 +114,18 @@ export default function App() {
     setAuthMode(mode);
     setIsAuthOpen(true);
   };
+
+  if (currentUser) {
+    return (
+      <RiderHome
+        user={currentUser}
+        onSignOut={() => {
+          auth.signOut();
+          setCurrentUser(null);
+        }}
+      />
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#F7F9E1] text-[#204654] font-['Plus_Jakarta_Sans',sans-serif] selection:bg-[#CAFFA6] selection:text-[#0F2A4A]">

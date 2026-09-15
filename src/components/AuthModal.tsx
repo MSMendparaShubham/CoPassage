@@ -20,7 +20,7 @@ interface AuthModalProps {
   isOpen: boolean;
   onClose: () => void;
   initialMode?: 'signin' | 'signup';
-  onSuccess?: (user: { name: string; phone: string; role: string }) => void;
+  onSuccess?: (user: { uid: string; name: string; phone: string; role: string }) => void;
 }
 
 declare global {
@@ -248,6 +248,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         setTimeout(() => {
           if (onSuccess) {
             onSuccess({
+              uid: result.user.uid,
               name: fullName.trim() || result.user.displayName || 'CoPassage Commuter',
               phone: phone || result.user.phoneNumber || '',
               role: 'commuter',
@@ -272,6 +273,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         setTimeout(() => {
           if (onSuccess) {
             onSuccess({
+              uid: auth.currentUser?.uid || 'demo_rider_uid',
               name: fullName.trim() || 'Rohan Sharma',
               phone: phone || '+91 98765 43210',
               role: 'commuter',
@@ -279,7 +281,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           }
           handleClose();
         }, 1200);
-      }, 700);
+      }, 600);
     }
   };
 
