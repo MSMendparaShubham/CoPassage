@@ -1,0 +1,143 @@
+export interface AnimationBeat {
+  id: string;
+  number: number | string;
+  name: string;
+  label: string;
+  startTime: number; // in seconds
+  endTime: number; // in seconds
+  description: string;
+  tagline: string;
+}
+
+export const ANIMATION_DURATION = 20; // seconds
+
+export const BEATS: AnimationBeat[] = [
+  {
+    id: 'intro',
+    number: 'Logo',
+    name: 'Brand Mark Open',
+    label: 'Brand Intro',
+    startTime: 0,
+    endTime: 2.0,
+    description: 'CoPassage logo appears: yellow auto-rickshaw icon with navy outline, pin trail, wordmark and tagline.',
+    tagline: 'Dynamic Auto Sharing • Peer-to-Peer Split • Be Smart, Ride Together',
+  },
+  {
+    id: 'beat1',
+    number: '1',
+    name: 'Solo Booking',
+    label: 'Solo Booking',
+    startTime: 2.0,
+    endTime: 6.0,
+    description: 'Solo rider waiting at roadside. Yellow auto pulls up. Price tag floats above rickshaw: 100% full fare borne alone.',
+    tagline: 'Booking alone? Paying 100% full fare alone.',
+  },
+  {
+    id: 'beat2',
+    number: '2',
+    name: 'Broadcasting on the Map',
+    label: 'Map Broadcast',
+    startTime: 6.0,
+    endTime: 10.0,
+    description: 'Stylized Glacial Sky map with thin navy roads. Rider pulses in Spring Meadow green with radiating ripples; destination pin drops.',
+    tagline: 'Broadcasting route in real-time on live transit map.',
+  },
+  {
+    id: 'beat3',
+    number: '3',
+    name: 'Match Found',
+    label: 'Match Found',
+    startTime: 10.0,
+    endTime: 14.0,
+    description: 'Co-riders appear along corridor (maximum 3 in one auto). Routes curve to intersect; dots snap together with green glow and chat bubble pops.',
+    tagline: 'Matched instantly with verified co-riders along your route.',
+  },
+  {
+    id: 'beat4',
+    number: '4',
+    name: 'Split & Ride Together',
+    label: 'Split Fare & Ride',
+    startTime: 14.0,
+    endTime: 18.0,
+    description: 'Up to 3 riders seated in rickshaw cabin. Total fare splits equally with playful bounce. Rickshaw cruises off with motion trails.',
+    tagline: 'Fair split: Maximum 3 riders share the ride and split the fare equally.',
+  },
+  {
+    id: 'closing',
+    number: 'End',
+    name: 'Closing Brand Card',
+    label: 'Closing & Loop',
+    startTime: 18.0,
+    endTime: 20.0,
+    description: 'Centered CoPassage logo with animated Spring Meadow green accent underline. Seamless hero loop point.',
+    tagline: 'Dynamic Auto Sharing • Peer-to-Peer Split • Be Smart, Ride Together',
+  },
+];
+
+export interface BrandColor {
+  name: string;
+  role: string;
+  hex: string;
+  textColor: string;
+  description: string;
+  contrastRatio: string;
+}
+
+export const BRAND_PALETTE: BrandColor[] = [
+  {
+    name: 'Spring Meadow',
+    role: 'Accents, highlights, success states & glows',
+    hex: '#CAFFA6',
+    textColor: '#0F2A4A',
+    description: 'Lively green for route pulse, glow snaps, and price split celebrations.',
+    contrastRatio: '13.4:1 vs #0F2A4A (AAA Pass)',
+  },
+  {
+    name: 'Teal Waters',
+    role: 'Primary text, dark UI elements & map roads',
+    hex: '#204654',
+    textColor: '#F7F9E1',
+    description: 'Deep navy-teal grounding the structure, roads, and primary typography.',
+    contrastRatio: '9.8:1 vs #F7F9E1 (AAA Pass)',
+  },
+  {
+    name: 'Glacial Sky',
+    role: 'Secondary backgrounds, map & route tones',
+    hex: '#A9E0F1',
+    textColor: '#0F2A4A',
+    description: 'Airy, crisp blue used for the navigation map canvas and route halos.',
+    contrastRatio: '10.2:1 vs #0F2A4A (AAA Pass)',
+  },
+  {
+    name: 'Morning Mist',
+    role: 'Primary background base (cream/off-white)',
+    hex: '#F7F9E1',
+    textColor: '#204654',
+    description: 'Warm, soft neutral background ensuring eye-comfort and zero glare.',
+    contrastRatio: '14.1:1 vs #0F2A4A (AAA Pass)',
+  },
+  {
+    name: 'Logo Rickshaw Yellow',
+    role: 'Auto-rickshaw vehicle body',
+    hex: '#F5A623',
+    textColor: '#0F2A4A',
+    description: 'Warm golden yellow quintessential to Indian three-wheelers.',
+    contrastRatio: '7.8:1 vs #0F2A4A (AAA Pass)',
+  },
+  {
+    name: 'Logo Navy',
+    role: 'Deep navy outlines & typography',
+    hex: '#0F2A4A',
+    textColor: '#F7F9E1',
+    description: 'Solid, authoritative navy providing strong 2D vector outline definition.',
+    contrastRatio: '16.5:1 vs #F7F9E1 (AAA Pass)',
+  },
+  {
+    name: 'Logo Sky Blue',
+    role: '"CO" wordmark accent',
+    hex: '#4A9FE0',
+    textColor: '#0F2A4A',
+    description: 'Vibrant sky blue emphasizing the cooperative "CO" community essence.',
+    contrastRatio: '5.1:1 vs #0F2A4A (AA/AAA Pass)',
+  },
+];

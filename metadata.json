@@ -1,0 +1,6 @@
+{
+  "name": "CoPassage Intro Animation",
+  "description": "Flat 2D vector explainer animation and interactive web hero component for CoPassage dynamic auto-rickshaw sharing.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
