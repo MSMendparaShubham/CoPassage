@@ -59,6 +59,7 @@ export const IntroVideoOverlay: React.FC<IntroVideoOverlayProps> = ({
         autoPlay
         muted
         onEnded={handleFinish}
+        onError={handleFinish}
         className="w-full h-full object-cover bg-black"
       />
 
