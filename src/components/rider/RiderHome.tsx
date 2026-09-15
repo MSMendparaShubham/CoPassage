@@ -7,13 +7,17 @@ import { ActivityView } from './ActivityView';
 import { ProfileView } from './ProfileView';
 import { CoPassageLogo } from '../CoPassageLogo';
 
+import { RiderIntentFlow, RouteIntentData } from './RiderIntentFlow';
+
 interface RiderHomeProps {
   user: AuthedUser;
   onSignOut: () => void;
+  onViewLandingPage?: () => void;
 }
 
-export const RiderHome: React.FC<RiderHomeProps> = ({ user, onSignOut }) => {
+export const RiderHome: React.FC<RiderHomeProps> = ({ user, onSignOut, onViewLandingPage }) => {
   const [activeTab, setActiveTab] = useState<'map' | 'activity' | 'profile'>('map');
+  const [routeIntent, setRouteIntent] = useState<RouteIntentData | null>(null);
   const { coordinates, hasPermission, startTracking } = useGeolocation();
 
   // Prompt location contextually on first load
@@ -33,13 +37,22 @@ export const RiderHome: React.FC<RiderHomeProps> = ({ user, onSignOut }) => {
         </div>
 
         <div className="flex items-center gap-3">
+          {onViewLandingPage && (
+            <button
+              onClick={onViewLandingPage}
+              className="text-xs font-bold text-gray-600 hover:text-teal-waters bg-gray-100 hover:bg-gray-200 px-3 py-1.5 rounded-full transition-colors cursor-pointer"
+            >
+              Landing Page
+            </button>
+          )}
+
           <div className="text-right">
             <span className="text-xs font-bold text-gray-800 block leading-tight">{user.name}</span>
             <span className="text-[10px] text-gray-400 block">{user.phone}</span>
           </div>
           <button
             onClick={() => setActiveTab('profile')}
-            className="w-9 h-9 rounded-full bg-teal-waters text-spring-meadow font-bold flex items-center justify-center text-sm shadow-xs hover:opacity-90 transition-opacity"
+            className="w-9 h-9 rounded-full bg-teal-waters text-spring-meadow font-bold flex items-center justify-center text-sm shadow-xs hover:opacity-90 transition-opacity cursor-pointer"
             title="Open profile"
           >
             {user.name.charAt(0).toUpperCase()}
@@ -50,12 +63,22 @@ export const RiderHome: React.FC<RiderHomeProps> = ({ user, onSignOut }) => {
       {/* Main View Area */}
       <main className="flex-1 overflow-y-auto relative">
         {activeTab === 'map' && (
-          <MapView
-            user={user}
-            coords={coordinates}
-            hasPermission={hasPermission}
-            startTracking={startTracking}
-          />
+          !routeIntent ? (
+            <RiderIntentFlow
+              user={user}
+              coords={coordinates}
+              onComplete={(data) => setRouteIntent(data)}
+            />
+          ) : (
+            <MapView
+              user={user}
+              coords={coordinates}
+              hasPermission={hasPermission}
+              startTracking={startTracking}
+              routeIntent={routeIntent}
+              onResetIntent={() => setRouteIntent(null)}
+            />
+          )
         )}
         {activeTab === 'activity' && <ActivityView user={user} />}
         {activeTab === 'profile' && <ProfileView user={user} onSignOut={onSignOut} />}

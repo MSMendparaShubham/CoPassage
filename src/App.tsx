@@ -34,6 +34,7 @@ export default function App() {
   const [isAuthOpen, setIsAuthOpen] = useState<boolean>(false);
   const [authMode, setAuthMode] = useState<'signin' | 'signup'>('signin');
   const [currentUser, setCurrentUser] = useState<AuthedUser | null>(null);
+  const [viewMode, setViewMode] = useState<'landing' | 'rider'>('landing');
 
   // Sync Firebase Auth state
   useEffect(() => {
@@ -115,14 +116,16 @@ export default function App() {
     setIsAuthOpen(true);
   };
 
-  if (currentUser) {
+  if (currentUser && viewMode === 'rider') {
     return (
       <RiderHome
         user={currentUser}
         onSignOut={() => {
           auth.signOut();
           setCurrentUser(null);
+          setViewMode('landing');
         }}
+        onViewLandingPage={() => setViewMode('landing')}
       />
     );
   }
@@ -139,7 +142,10 @@ export default function App() {
         isOpen={isAuthOpen}
         onClose={() => setIsAuthOpen(false)}
         initialMode={authMode}
-        onSuccess={(user) => setCurrentUser(user)}
+        onSuccess={(user) => {
+          setCurrentUser(user);
+          setViewMode('rider');
+        }}
       />
 
       {/* Top Sticky Brand Navigation */}
@@ -203,15 +209,22 @@ export default function App() {
 
             {currentUser ? (
               <div className="flex items-center gap-2">
-                <div className="bg-[#CAFFA6] text-[#0F2A4A] text-xs font-extrabold px-3 py-1.5 rounded-full border-2 border-[#0F2A4A] flex items-center gap-1.5 shadow-xs">
-                  <User className="w-3.5 h-3.5" />
+                <button
+                  onClick={() => setViewMode('rider')}
+                  className="bg-[#CAFFA6] hover:bg-[#b8f78f] text-[#0F2A4A] text-xs font-black px-3.5 py-1.5 rounded-full border-2 border-[#0F2A4A] flex items-center gap-1.5 shadow-[0_2px_0_#0F2A4A] active:translate-y-0.5 transition-all cursor-pointer"
+                >
+                  <span>Open Rider App</span>
+                  <ArrowRight className="w-3.5 h-3.5 stroke-[2.5]" />
+                </button>
+                <div className="hidden sm:flex bg-white text-[#0F2A4A] text-xs font-bold px-3 py-1.5 rounded-full border-2 border-[#0F2A4A] items-center gap-1.5 shadow-xs">
+                  <User className="w-3.5 h-3.5 text-[#0F2A4A]" />
                   <span>{currentUser.name}</span>
-                  <span className="bg-[#0F2A4A] text-[#CAFFA6] text-[10px] px-1.5 py-0.2 rounded-full font-mono">
-                    ₹50
-                  </span>
                 </div>
                 <button
-                  onClick={() => setCurrentUser(null)}
+                  onClick={() => {
+                    auth.signOut();
+                    setCurrentUser(null);
+                  }}
                   className="p-1.5 bg-white border-2 border-[#0F2A4A] rounded-full hover:bg-red-50 text-red-600 transition-colors cursor-pointer"
                   title="Sign Out"
                 >
@@ -222,15 +235,15 @@ export default function App() {
               <>
                 <button
                   onClick={() => openAuth('signin')}
-                  className="hidden sm:flex text-xs font-extrabold text-[#0F2A4A] hover:underline px-2 cursor-pointer"
+                  className="text-xs font-black text-[#0F2A4A] hover:underline px-2.5 py-1 cursor-pointer"
                 >
                   Sign In
                 </button>
                 <button
                   onClick={() => openAuth('signup')}
-                  className="bg-[#CAFFA6] hover:bg-[#b8f78f] text-[#0F2A4A] text-xs font-extrabold px-4 py-1.5 rounded-full border-2 border-[#0F2A4A] shadow-[0_3px_0_#0F2A4A] hover:shadow-xs transition-all active:translate-y-0.5 flex items-center gap-1.5 cursor-pointer"
+                  className="bg-[#CAFFA6] hover:bg-[#b8f78f] text-[#0F2A4A] text-xs font-black px-4 py-1.5 rounded-full border-2 border-[#0F2A4A] shadow-[0_3px_0_#0F2A4A] hover:shadow-xs transition-all active:translate-y-0.5 flex items-center gap-1.5 cursor-pointer"
                 >
-                  <span>Split Fare</span>
+                  <span>Join / Split</span>
                   <span className="text-xs">⚡</span>
                 </button>
               </>
@@ -261,6 +274,23 @@ export default function App() {
           <p className="mt-4 text-base sm:text-lg text-[#204654] max-w-2xl font-medium leading-relaxed">
             CoPassage matches commuters travelling along the same route in real-time. Up to 3 passengers share one auto-rickshaw and split the total fare equally.
           </p>
+
+          {/* Hero Action CTA */}
+          <div className="mt-6 flex flex-wrap items-center justify-center gap-3 z-10">
+            <button
+              onClick={() => {
+                if (currentUser) {
+                  setViewMode('rider');
+                } else {
+                  openAuth('signin');
+                }
+              }}
+              className="bg-[#F5A623] hover:bg-[#FFC043] text-[#0F2A4A] text-sm sm:text-base font-black px-7 py-3.5 rounded-full border-2 border-[#0F2A4A] shadow-[0_4px_0_#0F2A4A] hover:shadow-xs transition-all active:translate-y-1 flex items-center gap-2.5 cursor-pointer"
+            >
+              <span>🛺 Start Auto Sharing / Find Ride</span>
+              <ArrowRight className="w-5 h-5 stroke-[2.5]" />
+            </button>
+          </div>
 
           {/* ================= CONTINUOUS AUTOPLAY 16:9 EXPLAINER ANIMATION ================= */}
           <div className="w-full mt-8">

@@ -10,11 +10,15 @@ import { HostBroadcastOverlay } from './HostBroadcastOverlay';
 import { ActiveRideOverlay } from './ActiveRideOverlay';
 import { useBroadcast } from '../../hooks/useBroadcast';
 
+import { RouteIntentData } from './RiderIntentFlow';
+
 interface MapViewProps {
   user: AuthedUser;
   coords: LocationCoordinates;
   hasPermission: boolean | null;
   startTracking: () => void;
+  routeIntent?: RouteIntentData | null;
+  onResetIntent?: () => void;
 }
 
 export const MapView: React.FC<MapViewProps> = ({
@@ -22,6 +26,8 @@ export const MapView: React.FC<MapViewProps> = ({
   coords,
   hasPermission,
   startTracking,
+  routeIntent,
+  onResetIntent,
 }) => {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
@@ -46,6 +52,13 @@ export const MapView: React.FC<MapViewProps> = ({
     acceptRequest,
     rejectRequest,
   } = useBroadcast(user, coords);
+
+  // Auto-start broadcast if host chose "I Got an Auto" in intent flow
+  useEffect(() => {
+    if (routeIntent?.intent === 'have_auto' && !isBroadcasting && !activePost) {
+      startBroadcast(routeIntent.destination, routeIntent.fare, routeIntent.seats);
+    }
+  }, [routeIntent, isBroadcasting, activePost, startBroadcast]);
 
   // ─── Initialize Leaflet Map ───
   useEffect(() => {
@@ -226,6 +239,40 @@ export const MapView: React.FC<MapViewProps> = ({
     <div className="relative w-full h-[calc(100vh-64px)] overflow-hidden bg-gray-100">
       {/* Map Container */}
       <div ref={mapContainerRef} className="w-full h-full z-0" />
+
+      {/* Route Intent Top Floating Bar */}
+      {routeIntent && (
+        <div className="absolute top-4 left-4 right-16 sm:left-4 sm:right-auto sm:max-w-md z-30">
+          <div className="bg-white/95 backdrop-blur-md p-3 rounded-2xl shadow-xl border border-teal-waters/20 flex items-center justify-between gap-3 animate-slide-up">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className={`p-2 rounded-xl text-lg ${routeIntent.intent === 'have_auto' ? 'bg-rickshaw-yellow/30' : 'bg-teal-waters/15'}`}>
+                {routeIntent.intent === 'have_auto' ? '🛺' : '🚶'}
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5 text-[10px] font-bold text-gray-500 uppercase tracking-wider">
+                  <span className={routeIntent.intent === 'have_auto' ? 'text-amber-800' : 'text-teal-waters'}>
+                    {routeIntent.intent === 'have_auto' ? 'You Have Auto' : 'Looking For Auto'}
+                  </span>
+                  {routeIntent.fare > 0 && <span className="text-teal-waters font-mono font-black">• Total ₹{routeIntent.fare}</span>}
+                </div>
+                <div className="text-xs font-extrabold text-gray-900 truncate">
+                  {routeIntent.pickup} ➔ {routeIntent.destination}
+                </div>
+              </div>
+            </div>
+
+            {onResetIntent && (
+              <button
+                onClick={onResetIntent}
+                className="px-2.5 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-bold rounded-lg shrink-0 transition-colors cursor-pointer"
+                title="Change Mode or Route"
+              >
+                Change
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Permission Warning Banner (if not yet granted) */}
       {hasPermission === false && (

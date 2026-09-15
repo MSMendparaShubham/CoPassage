@@ -428,6 +428,28 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             <div className="text-center mt-1">
               <span className="text-xs sm:text-sm font-black text-[#0B3059] tracking-tight">Smart Peer-to-Peer Splitting</span>
             </div>
+
+            {/* Quick Demo Login Option */}
+            <div className="mt-3 pt-3 border-t border-gray-300/80 text-center">
+              <span className="text-[10px] uppercase font-bold text-gray-400 tracking-wider block mb-1.5">For Instant Hackathon / Evaluation Testing</span>
+              <button
+                type="button"
+                onClick={() => {
+                  if (onSuccess) {
+                    onSuccess({
+                      uid: 'demo_shubham_commuter',
+                      name: fullName.trim() || 'Shubham Mendpara',
+                      phone: phone || '+91 98765 43210',
+                      role: 'commuter',
+                    });
+                  }
+                  handleClose();
+                }}
+                className="w-full py-2.5 px-4 bg-[#CAFFA6]/80 hover:bg-[#CAFFA6] border-2 border-[#0B3059] rounded-xl text-xs font-black text-[#0B3059] flex items-center justify-center gap-1.5 shadow-[0_2px_0_#0B3059] active:translate-y-0.5 transition-all cursor-pointer"
+              >
+                <span>⚡ Instant Demo Login (Skip OTP)</span>
+              </button>
+            </div>
           </form>
         )}
 
