@@ -19,6 +19,7 @@ export interface RouteIntentData {
   intent: 'have_auto' | 'need_auto';
   pickup: string;
   destination: string;
+  destinationCoords?: LocationCoordinates | null;
   fare: number;
   seats: number;
 }
@@ -40,8 +41,8 @@ export const RiderIntentFlow: React.FC<RiderIntentFlowProps> = ({
   const [selectedIntent, setSelectedIntent] = useState<'have_auto' | 'need_auto' | null>(null);
 
   // Form State
-  const [pickup, setPickup] = useState('My Current GPS Location');
   const [destination, setDestination] = useState('');
+  const [destinationCoords, setDestinationCoords] = useState<LocationCoordinates | null>(null);
   const [fare, setFare] = useState('150');
   const [seats, setSeats] = useState(2);
   const [error, setError] = useState<string | null>(null);
@@ -75,15 +76,16 @@ export const RiderIntentFlow: React.FC<RiderIntentFlowProps> = ({
 
     onComplete({
       intent: selectedIntent!,
-      pickup: pickup.trim() || 'Current Location',
+      pickup: `Live GPS (${coords.lat.toFixed(4)}, ${coords.lng.toFixed(4)})`,
       destination: destination.trim(),
+      destinationCoords,
       fare: selectedIntent === 'have_auto' ? numericFare : 0,
       seats: selectedIntent === 'have_auto' ? seats : 1,
     });
   };
 
   return (
-    <div className="min-h-[calc(100vh-64px)] flex items-center justify-center p-4 sm:p-6 bg-morning-mist">
+    <div className="min-h-[calc(100dvh-64px-64px)] flex items-center justify-center p-4 sm:p-6 bg-morning-mist">
       <div className="w-full max-w-xl bg-white rounded-3xl shadow-xl border border-teal-waters/15 overflow-hidden animate-slide-up">
         {/* Step 1: Choose Intent */}
         {step === 'choose_intent' && (
@@ -188,20 +190,38 @@ export const RiderIntentFlow: React.FC<RiderIntentFlowProps> = ({
                 </div>
               )}
 
-              {/* Current / Pickup Location with Autocomplete & GPS */}
-              <LocationAutocomplete
-                label="Current / Pickup Location"
-                value={pickup}
-                onChange={(val) => setPickup(val)}
-                placeholder="Search city, metro, or landmark (or use GPS)..."
-                userCoords={coords}
-              />
+              {/* Origin / Current Location — GPS Only, No Manual Entry */}
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-gray-500 mb-1.5">
+                  Your Current Location (Live GPS)
+                </label>
+                <div className="flex items-center gap-3 p-3 bg-emerald-50/80 border border-emerald-200/80 rounded-xl text-emerald-950">
+                  <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600 shrink-0">
+                    <Navigation className="w-4 h-4 fill-current animate-pulse" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-xs font-bold flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block"></span>
+                      <span>Device GPS Location Detected</span>
+                    </div>
+                    <div className="text-[11px] text-emerald-700 font-mono mt-0.5">
+                      {coords.lat.toFixed(5)}, {coords.lng.toFixed(5)}
+                    </div>
+                  </div>
+                  <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 bg-emerald-200 text-emerald-900 rounded-md">
+                    GPS Fixed
+                  </span>
+                </div>
+              </div>
 
               {/* Destination with Recommendations (e.g. nad -> Nadiad, Nagpur) */}
               <LocationAutocomplete
                 label="Where are you heading? (Destination)"
                 value={destination}
-                onChange={(val) => setDestination(val)}
+                onChange={(val, destCoords) => {
+                  setDestination(val);
+                  if (destCoords) setDestinationCoords(destCoords);
+                }}
                 placeholder="Type destination (e.g. Nadiad, Nagpur, BKC, Metro)..."
                 autoFocus
                 required
@@ -224,7 +244,7 @@ export const RiderIntentFlow: React.FC<RiderIntentFlowProps> = ({
                         value={fare}
                         onChange={(e) => setFare(e.target.value)}
                         placeholder="e.g. 150"
-                        className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-medium text-gray-900 focus:outline-none focus:ring-2 focus:ring-teal-waters focus:bg-white transition-all"
+                        className="w-full h-11 pl-10 pr-4 bg-gray-50 border border-gray-200 rounded-xl text-sm font-medium text-gray-900 focus:outline-none focus:ring-2 focus:ring-teal-waters/40 focus:bg-white transition-all"
                         required
                       />
                     </div>
@@ -241,7 +261,7 @@ export const RiderIntentFlow: React.FC<RiderIntentFlowProps> = ({
                           key={num}
                           type="button"
                           onClick={() => setSeats(num)}
-                          className={`py-2 px-3 rounded-xl border text-xs font-bold flex items-center justify-center gap-1 transition-all cursor-pointer ${
+                          className={`h-11 rounded-xl border text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
                             seats === num
                               ? 'bg-teal-waters text-spring-meadow border-teal-waters shadow-sm'
                               : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100'
@@ -270,7 +290,7 @@ export const RiderIntentFlow: React.FC<RiderIntentFlowProps> = ({
               <div className="pt-3">
                 <button
                   type="submit"
-                  className={`w-full py-3.5 px-6 font-bold rounded-xl shadow-lg flex items-center justify-center gap-2 transition-all active:scale-[0.98] cursor-pointer ${
+                  className={`w-full h-12 px-6 font-bold rounded-2xl shadow-lg flex items-center justify-center gap-2 transition-all active:scale-[0.98] cursor-pointer ${
                     selectedIntent === 'have_auto'
                       ? 'bg-rickshaw-yellow hover:bg-rickshaw-yellow-light text-logo-navy shadow-amber-500/20'
                       : 'bg-teal-waters hover:bg-teal-waters/90 text-spring-meadow shadow-teal-900/20'

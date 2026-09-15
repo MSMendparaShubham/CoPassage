@@ -155,11 +155,14 @@ export interface RiderPost {
   host_name: string;
   host_phone: string;
   destination: string;
+  destination_lat?: number | null;
+  destination_lng?: number | null;
   fare: number;
   seats_available: number;
   current_lat: number;
   current_lng: number;
   status: 'active' | 'matched' | 'completed' | 'cancelled';
+  host_marked_complete?: boolean;
   last_seen_at: string;
   created_at: string;
 }
@@ -173,6 +176,7 @@ export interface JoinRequest {
   status: 'pending' | 'accepted' | 'rejected' | 'cancelled';
   requester_lat: number | null;
   requester_lng: number | null;
+  rider_marked_complete?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -194,5 +198,15 @@ export interface SosEvent {
   triggered_by_phone: string;
   lat: number | null;
   lng: number | null;
+  created_at: string;
+}
+
+export interface RiderRating {
+  id: string;
+  post_id: string;
+  rater_uid: string;
+  rated_uid: string;
+  stars: number;
+  comment?: string | null;
   created_at: string;
 }

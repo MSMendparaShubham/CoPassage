@@ -17,7 +17,12 @@ export function useBroadcast(user: AuthedUser | null, coords: LocationCoordinate
 
   // Start broadcasting a found auto
   const startBroadcast = useCallback(
-    async (destination: string, fare: number, seatsAvailable: number = 2) => {
+    async (
+      destination: string,
+      fare: number,
+      seatsAvailable: number = 2,
+      destCoords?: LocationCoordinates | null
+    ) => {
       if (!user) {
         setError('User not authenticated.');
         return null;
@@ -32,11 +37,14 @@ export function useBroadcast(user: AuthedUser | null, coords: LocationCoordinate
             host_name: user.name,
             host_phone: user.phone,
             destination,
+            destination_lat: destCoords ? destCoords.lat : null,
+            destination_lng: destCoords ? destCoords.lng : null,
             fare,
             seats_available: seatsAvailable,
             current_lat: coordsRef.current.lat,
             current_lng: coordsRef.current.lng,
             status: 'active',
+            host_marked_complete: false,
             last_seen_at: new Date().toISOString(),
           })
           .select()

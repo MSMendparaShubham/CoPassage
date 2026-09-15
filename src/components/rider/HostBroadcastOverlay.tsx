@@ -21,7 +21,7 @@ export const HostBroadcastOverlay: React.FC<HostBroadcastOverlayProps> = ({
   const splitFare = Math.round(post.fare / (post.seats_available + 1));
 
   return (
-    <div className="absolute bottom-20 left-4 right-4 sm:left-auto sm:right-6 sm:w-96 z-40 bg-white/95 backdrop-blur-md rounded-2xl shadow-2xl border border-teal-waters/20 overflow-hidden animate-slide-up">
+    <div className="absolute bottom-4 left-3 right-3 sm:left-auto sm:right-4 sm:w-96 z-40 bg-white/95 backdrop-blur-md rounded-2xl shadow-2xl border border-teal-waters/15 overflow-hidden animate-slide-up">
       {/* Top Banner */}
       <div className="bg-teal-waters text-white px-4 py-3 flex items-center justify-between">
         <div className="flex items-center gap-2.5">
@@ -98,14 +98,14 @@ export const HostBroadcastOverlay: React.FC<HostBroadcastOverlayProps> = ({
                 <div className="flex items-center gap-1.5 shrink-0">
                   <button
                     onClick={() => onRejectRequest(req.id)}
-                    className="p-2 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-600 transition-colors"
+                    className="w-10 h-10 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-600 transition-colors flex items-center justify-center cursor-pointer"
                     title="Decline"
                   >
                     <X className="w-4 h-4" />
                   </button>
                   <button
                     onClick={() => onAcceptRequest(req)}
-                    className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-teal-waters hover:bg-teal-waters/90 text-spring-meadow text-xs font-bold shadow-xs transition-colors"
+                    className="flex items-center gap-1 h-10 px-4 rounded-xl bg-teal-waters hover:bg-logo-navy text-spring-meadow text-xs font-bold shadow-sm transition-all active:scale-[0.98] cursor-pointer"
                   >
                     <Check className="w-4 h-4" />
                     <span>Accept</span>
