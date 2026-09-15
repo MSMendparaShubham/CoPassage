@@ -7,7 +7,13 @@ import {
   ArrowRight,
   ShieldCheck,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  KeyRound,
+  Sparkles,
+  Copy,
+  Check,
+  Zap,
+  Lock
 } from 'lucide-react';
 import { auth } from '../firebase';
 import {
@@ -29,6 +35,64 @@ declare global {
   }
 }
 
+export interface TestAccount {
+  phone: string;
+  displayPhone: string;
+  otp: string;
+  name: string;
+  role: string;
+  tag: string;
+  avatar: string;
+}
+
+export const FIREBASE_TEST_ACCOUNTS: TestAccount[] = [
+  {
+    phone: '9875101054',
+    displayPhone: '+91 98751 01054',
+    otp: '000001',
+    name: 'Shubham Mendpara',
+    role: 'Rider Host (Has an Auto)',
+    tag: '🛺 Host Commuter',
+    avatar: 'SM',
+  },
+  {
+    phone: '8849350719',
+    displayPhone: '+91 88493 50719',
+    otp: '404040',
+    name: 'Nisarg Makwana',
+    role: 'Commuter Seeker (Needs Auto)',
+    tag: '🔍 Seeker Commuter',
+    avatar: 'NM',
+  },
+  {
+    phone: '9824597605',
+    displayPhone: '+91 98245 97605',
+    otp: '123456',
+    name: 'Priya Sharma',
+    role: 'Safe Share Female Commuter',
+    tag: '🛡️ Safe Share',
+    avatar: 'PS',
+  },
+  {
+    phone: '9974144230',
+    displayPhone: '+91 99741 44230',
+    otp: '979797',
+    name: 'Rohan Patel',
+    role: 'Daily Corridor Commuter',
+    tag: '📍 Daily Rider',
+    avatar: 'RP',
+  },
+  {
+    phone: '7572867636',
+    displayPhone: '+91 75728 67636',
+    otp: '101010',
+    name: 'Ananya Kotadiya',
+    role: 'Verified Campus Commuter',
+    tag: '🎓 Campus Rider',
+    avatar: 'AK',
+  },
+];
+
 export const AuthModal: React.FC<AuthModalProps> = ({
   isOpen,
   onClose,
@@ -48,6 +112,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [copiedOtp, setCopiedOtp] = useState<string | null>(null);
+  const [selectedTestPhone, setSelectedTestPhone] = useState<string | null>(null);
 
   const confirmationResultRef = useRef<ConfirmationResult | null>(null);
 
@@ -60,6 +126,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       setErrorMessage(null);
       setSuccessMessage(null);
       setIsLoading(false);
+      setSelectedTestPhone(null);
     }
   }, [isOpen, initialMode]);
 
@@ -255,7 +322,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             });
           }
           handleClose();
-        }, 1200);
+        }, 1000);
       } catch (err: any) {
         console.error('OTP Verification Error:', err);
         setIsLoading(false);
@@ -280,240 +347,425 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             });
           }
           handleClose();
-        }, 1200);
+        }, 1000);
       }, 600);
     }
   };
+
+  // ─── Auto-fill from Test Account Card ───
+  const handleSelectTestAccount = (account: TestAccount) => {
+    setSelectedTestPhone(account.phone);
+    setPhone(account.phone);
+    setFullName(account.name);
+    setErrorMessage(null);
+
+    if (otpSent) {
+      setOtp(account.otp.split(''));
+    }
+  };
+
+  const handleInstantTestLogin = (account: TestAccount) => {
+    if (onSuccess) {
+      onSuccess({
+        uid: `firebase_test_${account.phone}`,
+        name: account.name,
+        phone: account.displayPhone,
+        role: 'commuter',
+      });
+    }
+    handleClose();
+  };
+
+  const handleCopyOtp = (code: string) => {
+    navigator.clipboard.writeText(code);
+    setCopiedOtp(code);
+    setTimeout(() => setCopiedOtp(null), 1500);
+  };
+
+  const matchedTestAccount = FIREBASE_TEST_ACCOUNTS.find(
+    (acc) => acc.phone === phone.replace(/\D/g, '')
+  );
 
   if (!isOpen) return null;
 
   return (
     <div
-      className="fixed inset-0 z-[9999] bg-[#0F2A4A]/80 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 overflow-y-auto"
+      className="fixed inset-0 z-[9999] bg-[#0F2A4A]/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 overflow-y-auto font-['Plus_Jakarta_Sans',sans-serif]"
       role="dialog"
       aria-modal="true"
       onClick={(e) => { if (e.target === e.currentTarget) handleClose(); }}
     >
-      <div className="relative w-full max-w-[420px] bg-[#FBFCEF] border-[2.5px] border-[#0B3059] rounded-[28px] p-5 sm:p-7 shadow-[0_16px_36px_rgba(11,48,89,0.25)] text-[#0B3059] my-auto max-h-[96vh] overflow-y-auto">
+      <div className="relative w-full max-w-4xl flex flex-col lg:flex-row items-stretch justify-center gap-4 my-auto max-h-[96vh]">
 
-        {/* ─── Header: Logo + Close ─── */}
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2.5">
-            <img src="/CoPassageLOGO2-removebg-preview.png" alt="CoPassage" className="w-10 h-10 object-contain drop-shadow-xs" />
-            <div>
-              <div className="text-xl font-black tracking-tight flex items-center leading-none">
-                <span className="text-[#38BDF8]">CO</span>
-                <span className="text-[#0B3059] tracking-wider">PASSAGE</span>
-              </div>
-              <span className="text-[9px] uppercase font-black text-[#0B3059] tracking-wider block mt-0.5">
-                Dynamic Auto Sharing
-              </span>
-            </div>
-          </div>
-          <button type="button" onClick={handleClose} className="w-8 h-8 rounded-full flex items-center justify-center text-[#0B3059] hover:bg-black/5 transition-colors cursor-pointer" aria-label="Close modal">
-            <X className="w-6 h-6 stroke-[2.5]" />
-          </button>
-        </div>
-
-        {/* ─── Tab Switcher ─── */}
-        <div className="bg-[#A4E2FB] p-1 rounded-2xl grid grid-cols-2 gap-1 mb-4">
-          {mode === 'signin' ? (
-            <>
-              <button type="button" className="py-2.5 rounded-xl text-xs font-black bg-[#0B3059] text-white shadow-xs cursor-default">Sign In</button>
-              <button type="button" onClick={() => switchMode('signup')} className="py-2.5 rounded-xl text-xs font-black text-[#0B3059] hover:bg-white/40 transition-all cursor-pointer">Create Account</button>
-            </>
-          ) : (
-            <>
-              <button type="button" className="py-2.5 rounded-xl text-xs font-black bg-[#0B3059] text-white shadow-xs cursor-default">Sign Up</button>
-              <button type="button" onClick={() => switchMode('signin')} className="py-2.5 rounded-xl text-xs font-black text-[#0B3059] hover:bg-white/40 transition-all cursor-pointer">Log In</button>
-            </>
-          )}
-        </div>
-
-        {/* ─── Auto Illustration ─── */}
-        <div className="flex justify-center mb-4">
-          <img src="/auto-illustration.png" alt="CoPassage Auto Sharing" className="w-48 sm:w-56 h-auto object-contain pointer-events-none drop-shadow-xs" />
-        </div>
-
-        {/* ─── Alerts ─── */}
-        {successMessage && (
-          <div className="mb-4 bg-[#CAFFA6] border-2 border-[#0B3059] rounded-2xl p-3.5 flex items-center gap-2.5 text-xs font-black text-[#0B3059] animate-bounce">
-            <CheckCircle2 className="w-5 h-5 shrink-0" />
-            <span>{successMessage}</span>
-          </div>
-        )}
-        {errorMessage && (
-          <div className="mb-4 bg-rose-50 border-2 border-rose-500 rounded-2xl p-3 flex items-start gap-2 text-xs font-bold text-rose-700">
-            <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
-            <span>{errorMessage}</span>
-          </div>
-        )}
-
-        {/* ════════════════ STEP 1: COLLECT INFO & SEND OTP ════════════════ */}
-        {!otpSent && (
-          <form onSubmit={handleSendOtp} className="flex flex-col gap-3">
-            {mode === 'signup' && (
-              <>
-                {/* Full Name */}
+        {/* ════════════════ LEFT: SIGN IN / SIGN UP FORM ════════════════ */}
+        <div className="w-full lg:w-[420px] bg-[#FBFCEF] border-[2.5px] border-[#0B3059] rounded-[28px] p-5 sm:p-7 shadow-[0_16px_36px_rgba(11,48,89,0.25)] text-[#0B3059] overflow-y-auto max-h-[92vh] flex flex-col justify-between">
+          <div>
+            {/* Header: Logo + Close */}
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2.5">
+                <img src="/CoPassageLOGO2-removebg-preview.png" alt="CoPassage" className="w-10 h-10 object-contain drop-shadow-xs" />
                 <div>
-                  <label className="block text-xs font-black text-[#0B3059] mb-1">Full Name</label>
-                  <div className="relative flex items-center">
-                    <User className="w-4 h-4 text-[#0B3059] absolute left-3.5" />
-                    <input type="text" required placeholder="Enter your full name" value={fullName} onChange={(e) => setFullName(e.target.value)}
-                      className="w-full pl-10 pr-4 py-2.5 bg-white border-2 border-[#0B3059] rounded-xl text-xs sm:text-sm font-bold text-[#0B3059] placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-[#A4E2FB]" />
+                  <div className="text-xl font-black tracking-tight flex items-center leading-none">
+                    <span className="text-[#38BDF8]">CO</span>
+                    <span className="text-[#0B3059] tracking-wider">PASSAGE</span>
                   </div>
+                  <span className="text-[9px] uppercase font-black text-[#0B3059] tracking-wider block mt-0.5">
+                    Dynamic Auto Sharing
+                  </span>
                 </div>
-              </>
-            )}
-
-            {/* Mobile Number */}
-            <div>
-              <label className="block text-xs font-black text-[#0B3059] mb-1">Mobile Number</label>
-              <div className="relative flex items-center">
-                <div className="absolute left-3.5 flex items-center gap-1.5 text-[#0B3059] font-black text-xs border-r border-gray-300 pr-2">
-                  <Phone className="w-3.5 h-3.5" />
-                  <span>IN +91</span>
-                </div>
-                <input type="tel" required placeholder="Enter your mobile number" pattern="[0-9]{10}" maxLength={10} value={phone}
-                  onChange={(e) => setPhone(e.target.value.replace(/\D/g, ''))}
-                  className="w-full pl-24 pr-4 py-2.5 bg-white border-2 border-[#0B3059] rounded-xl text-xs sm:text-sm font-bold text-[#0B3059] placeholder:text-gray-400 tracking-wider focus:outline-none focus:ring-2 focus:ring-[#A4E2FB]" />
               </div>
-            </div>
-
-            {mode === 'signup' && (
-              <>
-                {/* Email Address (optional info capture) */}
-                <div>
-                  <label className="block text-xs font-black text-[#0B3059] mb-1">
-                    Email Address <span className="text-[10px] text-gray-400 font-medium">(Optional)</span>
-                  </label>
-                  <div className="relative flex items-center">
-                    <Mail className="w-4 h-4 text-[#0B3059] absolute left-3.5" />
-                    <input type="email" placeholder="Enter your email address" value={email} onChange={(e) => setEmail(e.target.value)}
-                      className="w-full pl-10 pr-4 py-2.5 bg-white border-2 border-[#0B3059] rounded-xl text-xs sm:text-sm font-bold text-[#0B3059] placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-[#A4E2FB]" />
-                  </div>
-                </div>
-              </>
-            )}
-
-            {/* Send OTP Button */}
-            <button type="submit" disabled={isLoading || phone.replace(/\D/g, '').length < 10}
-              className={`w-full mt-2 py-3 border-2 border-[#0B3059] rounded-2xl font-black text-xs sm:text-sm transition-all flex items-center justify-center gap-2 cursor-pointer shadow-[0_2px_0_#0B3059] ${
-                phone.replace(/\D/g, '').length === 10
-                  ? 'bg-[#B6F8A0] hover:bg-[#a4f58b] active:translate-y-0.5 text-[#0B3059]'
-                  : 'bg-gray-200 text-gray-500 border-gray-400 cursor-not-allowed opacity-70'
-              }`}>
-              {isLoading ? (
-                <span>Sending OTP...</span>
-              ) : (
-                <>
-                  <span>{mode === 'signup' ? 'Send OTP & Create Account' : 'Send OTP to Login'}</span>
-                  <ArrowRight className="w-4 h-4 stroke-[2.5]" />
-                </>
-              )}
-            </button>
-
-            {/* Terms */}
-            <div className="flex items-center justify-center gap-1.5 text-[11px] font-bold text-[#0B3059] text-center mt-1">
-              <ShieldCheck className="w-4 h-4 text-emerald-500 shrink-0" />
-              <span>
-                By {mode === 'signup' ? 'signing up' : 'logging in'}, you agree to our{' '}
-                <a href="#terms" className="text-[#0284C7] hover:underline">Terms of Service</a>
-                {' '}&{' '}
-                <a href="#privacy" className="text-[#0284C7] hover:underline">Privacy Policy</a>
-              </span>
-            </div>
-
-            {/* Tagline */}
-            <div className="text-center mt-1">
-              <span className="text-xs sm:text-sm font-black text-[#0B3059] tracking-tight">Smart Peer-to-Peer Splitting</span>
-            </div>
-
-            {/* Quick Demo Login Option */}
-            <div className="mt-3 pt-3 border-t border-gray-300/80 text-center">
-              <span className="text-[10px] uppercase font-bold text-gray-400 tracking-wider block mb-1.5">For Instant Hackathon / Evaluation Testing</span>
               <button
                 type="button"
-                onClick={() => {
-                  if (onSuccess) {
-                    onSuccess({
-                      uid: 'demo_shubham_commuter',
-                      name: fullName.trim() || 'Shubham Mendpara',
-                      phone: phone || '+91 98765 43210',
-                      role: 'commuter',
-                    });
-                  }
-                  handleClose();
-                }}
-                className="w-full py-2.5 px-4 bg-[#CAFFA6]/80 hover:bg-[#CAFFA6] border-2 border-[#0B3059] rounded-xl text-xs font-black text-[#0B3059] flex items-center justify-center gap-1.5 shadow-[0_2px_0_#0B3059] active:translate-y-0.5 transition-all cursor-pointer"
+                onClick={handleClose}
+                className="w-8 h-8 rounded-full flex items-center justify-center text-[#0B3059] hover:bg-black/5 transition-colors cursor-pointer"
+                aria-label="Close modal"
               >
-                <span>⚡ Instant Demo Login (Skip OTP)</span>
-              </button>
-            </div>
-          </form>
-        )}
-
-        {/* ════════════════ STEP 2: VERIFY OTP ════════════════ */}
-        {otpSent && (
-          <form onSubmit={handleVerifyOtp} className="flex flex-col gap-4">
-            {/* Phone display + Change Number */}
-            <div className="bg-white border-2 border-[#0B3059] rounded-2xl p-4 text-center shadow-xs">
-              <span className="text-xs text-gray-500 font-bold block">Enter OTP sent via SMS to</span>
-              <span className="text-sm font-black text-[#0B3059]">+91 {phone}</span>
-              <button type="button" onClick={() => { setOtpSent(false); setErrorMessage(null); setOtp(['', '', '', '', '', '']); }}
-                className="text-[11px] font-bold text-[#0284C7] hover:underline block mx-auto mt-1 cursor-pointer">
-                Change Number
+                <X className="w-6 h-6 stroke-[2.5]" />
               </button>
             </div>
 
-            {/* 6-Digit OTP Boxes */}
-            <div>
-              <label className="block text-[11px] font-black uppercase text-center text-[#0B3059] mb-2">Enter 6-Digit Code</label>
-              <div className="flex justify-center gap-2 sm:gap-2.5">
-                {[0, 1, 2, 3, 4, 5].map((idx) => (
-                  <input key={idx} id={`otp-${idx}`} type="text" inputMode="numeric"
-                    autoComplete={idx === 0 ? 'one-time-code' : 'off'} maxLength={2} value={otp[idx]}
-                    onChange={(e) => handleOtpChange(idx, e.target.value)}
-                    onKeyDown={(e) => handleOtpKeyDown(idx, e)}
-                    onFocus={(e) => e.target.select()}
-                    onClick={(e) => (e.target as HTMLInputElement).select()}
-                    onPaste={handleOtpPaste}
-                    className="w-10 h-11 sm:w-11 sm:h-12 text-center text-lg font-black bg-white border-2 border-[#0B3059] rounded-xl text-[#0B3059] focus:outline-none focus:ring-2 focus:ring-[#A4E2FB] shadow-xs" />
-                ))}
-              </div>
-            </div>
-
-            {/* Verify Button */}
-            <button type="submit" disabled={isLoading || otp.join('').length < 6}
-              className={`w-full py-3 border-2 border-[#0B3059] rounded-2xl font-black text-xs sm:text-sm transition-all flex items-center justify-center gap-2 cursor-pointer shadow-[0_2px_0_#0B3059] ${
-                otp.join('').length === 6
-                  ? 'bg-[#B6F8A0] hover:bg-[#a4f58b] active:translate-y-0.5 text-[#0B3059]'
-                  : 'bg-gray-200 text-gray-500 border-gray-400 cursor-not-allowed opacity-70'
-              }`}>
-              {isLoading ? (
-                <span>Verifying...</span>
+            {/* Tab Switcher */}
+            <div className="bg-[#A4E2FB] p-1 rounded-2xl grid grid-cols-2 gap-1 mb-4">
+              {mode === 'signin' ? (
+                <>
+                  <button type="button" className="py-2.5 rounded-xl text-xs font-black bg-[#0B3059] text-white shadow-xs cursor-default">Sign In</button>
+                  <button type="button" onClick={() => switchMode('signup')} className="py-2.5 rounded-xl text-xs font-black text-[#0B3059] hover:bg-white/40 transition-all cursor-pointer">Create Account</button>
+                </>
               ) : (
                 <>
-                  <span>Verify & {mode === 'signup' ? 'Create Account' : 'Log In'}</span>
-                  <CheckCircle2 className="w-4 h-4" />
+                  <button type="button" className="py-2.5 rounded-xl text-xs font-black bg-[#0B3059] text-white shadow-xs cursor-default">Sign Up</button>
+                  <button type="button" onClick={() => switchMode('signin')} className="py-2.5 rounded-xl text-xs font-black text-[#0B3059] hover:bg-white/40 transition-all cursor-pointer">Log In</button>
                 </>
               )}
-            </button>
-
-            {/* Resend */}
-            <div className="text-center">
-              <button type="button" onClick={(e) => { setOtp(['', '', '', '', '', '']); handleSendOtp(e); }}
-                className="text-xs font-extrabold text-[#0B3059] hover:text-[#0284C7] underline cursor-pointer">
-                Resend OTP
-              </button>
             </div>
 
-            {/* Tagline */}
-            <div className="text-center">
-              <span className="text-xs sm:text-sm font-black text-[#0B3059] tracking-tight">Smart Peer-to-Peer Splitting</span>
+            {/* Auto Illustration */}
+            <div className="flex justify-center mb-3">
+              <img src="/auto-illustration.png" alt="CoPassage Auto Sharing" className="w-44 sm:w-48 h-auto object-contain pointer-events-none drop-shadow-xs" />
             </div>
-          </form>
-        )}
+
+            {/* Alerts */}
+            {successMessage && (
+              <div className="mb-3 bg-[#CAFFA6] border-2 border-[#0B3059] rounded-2xl p-3 flex items-center gap-2.5 text-xs font-black text-[#0B3059] animate-bounce">
+                <CheckCircle2 className="w-4 h-4 shrink-0" />
+                <span>{successMessage}</span>
+              </div>
+            )}
+            {errorMessage && (
+              <div className="mb-3 bg-rose-50 border-2 border-rose-500 rounded-2xl p-3 flex items-start gap-2 text-xs font-bold text-rose-700">
+                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                <span>{errorMessage}</span>
+              </div>
+            )}
+
+            {/* STEP 1: COLLECT INFO & SEND OTP */}
+            {!otpSent && (
+              <form onSubmit={handleSendOtp} className="flex flex-col gap-3">
+                {mode === 'signup' && (
+                  <div>
+                    <label className="block text-xs font-black text-[#0B3059] mb-1">Full Name</label>
+                    <div className="relative flex items-center">
+                      <User className="w-4 h-4 text-[#0B3059] absolute left-3.5" />
+                      <input
+                        type="text"
+                        required
+                        placeholder="Enter your full name"
+                        value={fullName}
+                        onChange={(e) => setFullName(e.target.value)}
+                        className="w-full pl-10 pr-4 py-2.5 bg-white border-2 border-[#0B3059] rounded-xl text-xs sm:text-sm font-bold text-[#0B3059] placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-[#A4E2FB]"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* Mobile Number */}
+                <div>
+                  <label className="block text-xs font-black text-[#0B3059] mb-1">Mobile Number</label>
+                  <div className="relative flex items-center">
+                    <div className="absolute left-3.5 flex items-center gap-1.5 text-[#0B3059] font-black text-xs border-r border-gray-300 pr-2">
+                      <Phone className="w-3.5 h-3.5" />
+                      <span>IN +91</span>
+                    </div>
+                    <input
+                      type="tel"
+                      required
+                      placeholder="Enter 10-digit number"
+                      pattern="[0-9]{10}"
+                      maxLength={10}
+                      value={phone}
+                      onChange={(e) => {
+                        setPhone(e.target.value.replace(/\D/g, ''));
+                        setSelectedTestPhone(null);
+                      }}
+                      className="w-full pl-24 pr-4 py-2.5 bg-white border-2 border-[#0B3059] rounded-xl text-xs sm:text-sm font-bold text-[#0B3059] placeholder:text-gray-400 tracking-wider focus:outline-none focus:ring-2 focus:ring-[#A4E2FB]"
+                    />
+                  </div>
+                </div>
+
+                {mode === 'signup' && (
+                  <div>
+                    <label className="block text-xs font-black text-[#0B3059] mb-1">
+                      Email Address <span className="text-[10px] text-gray-400 font-medium">(Optional)</span>
+                    </label>
+                    <div className="relative flex items-center">
+                      <Mail className="w-4 h-4 text-[#0B3059] absolute left-3.5" />
+                      <input
+                        type="email"
+                        placeholder="your.email@university.edu"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        className="w-full pl-10 pr-4 py-2.5 bg-white border-2 border-[#0B3059] rounded-xl text-xs sm:text-sm font-bold text-[#0B3059] placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-[#A4E2FB]"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* Send OTP Button */}
+                <button
+                  type="submit"
+                  disabled={isLoading || phone.replace(/\D/g, '').length < 10}
+                  className={`w-full mt-1 py-3 border-2 border-[#0B3059] rounded-2xl font-black text-xs sm:text-sm transition-all flex items-center justify-center gap-2 cursor-pointer shadow-[0_2px_0_#0B3059] ${
+                    phone.replace(/\D/g, '').length === 10
+                      ? 'bg-[#B6F8A0] hover:bg-[#a4f58b] active:translate-y-0.5 text-[#0B3059]'
+                      : 'bg-gray-200 text-gray-500 border-gray-400 cursor-not-allowed opacity-70'
+                  }`}
+                >
+                  {isLoading ? (
+                    <span>Sending OTP...</span>
+                  ) : (
+                    <>
+                      <span>{mode === 'signup' ? 'Send OTP & Create Account' : 'Send OTP to Login'}</span>
+                      <ArrowRight className="w-4 h-4 stroke-[2.5]" />
+                    </>
+                  )}
+                </button>
+              </form>
+            )}
+
+            {/* STEP 2: VERIFY OTP */}
+            {otpSent && (
+              <form onSubmit={handleVerifyOtp} className="flex flex-col gap-3">
+                <div className="bg-white border-2 border-[#0B3059] rounded-2xl p-3 text-center shadow-xs">
+                  <span className="text-xs text-gray-500 font-bold block">Enter OTP sent to</span>
+                  <span className="text-sm font-black text-[#0B3059]">+91 {phone}</span>
+                  <button
+                    type="button"
+                    onClick={() => { setOtpSent(false); setErrorMessage(null); setOtp(['', '', '', '', '', '']); }}
+                    className="text-[11px] font-bold text-[#0284C7] hover:underline block mx-auto mt-0.5 cursor-pointer"
+                  >
+                    Change Number
+                  </button>
+                </div>
+
+                {/* Detected Test OTP banner with 1-click fill */}
+                {matchedTestAccount && (
+                  <div className="p-2.5 bg-[#CAFFA6] border-2 border-[#0B3059] rounded-xl flex items-center justify-between text-xs font-bold text-[#0B3059]">
+                    <div className="flex items-center gap-1.5">
+                      <KeyRound className="w-4 h-4 text-emerald-800" />
+                      <span>Test OTP: <strong className="font-mono text-sm tracking-widest">{matchedTestAccount.otp}</strong></span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setOtp(matchedTestAccount.otp.split(''))}
+                      className="px-2.5 py-1 bg-[#0B3059] text-[#CAFFA6] rounded-lg text-[10px] font-black hover:bg-[#1a3d64] transition-colors cursor-pointer"
+                    >
+                      Auto-Fill OTP
+                    </button>
+                  </div>
+                )}
+
+                {/* 6-Digit OTP Boxes */}
+                <div>
+                  <label className="block text-[11px] font-black uppercase text-center text-[#0B3059] mb-1.5">
+                    Enter 6-Digit Code
+                  </label>
+                  <div className="flex justify-center gap-1.5 sm:gap-2">
+                    {[0, 1, 2, 3, 4, 5].map((idx) => (
+                      <input
+                        key={idx}
+                        id={`otp-${idx}`}
+                        type="text"
+                        inputMode="numeric"
+                        autoComplete={idx === 0 ? 'one-time-code' : 'off'}
+                        maxLength={2}
+                        value={otp[idx]}
+                        onChange={(e) => handleOtpChange(idx, e.target.value)}
+                        onKeyDown={(e) => handleOtpKeyDown(idx, e)}
+                        onFocus={(e) => e.target.select()}
+                        onClick={(e) => (e.target as HTMLInputElement).select()}
+                        onPaste={handleOtpPaste}
+                        className="w-10 h-11 sm:w-11 sm:h-12 text-center text-lg font-black bg-white border-2 border-[#0B3059] rounded-xl text-[#0B3059] focus:outline-none focus:ring-2 focus:ring-[#A4E2FB] shadow-xs font-mono"
+                      />
+                    ))}
+                  </div>
+                </div>
+
+                {/* Verify Button */}
+                <button
+                  type="submit"
+                  disabled={isLoading || otp.join('').length < 6}
+                  className={`w-full py-3 border-2 border-[#0B3059] rounded-2xl font-black text-xs sm:text-sm transition-all flex items-center justify-center gap-2 cursor-pointer shadow-[0_2px_0_#0B3059] ${
+                    otp.join('').length === 6
+                      ? 'bg-[#B6F8A0] hover:bg-[#a4f58b] active:translate-y-0.5 text-[#0B3059]'
+                      : 'bg-gray-200 text-gray-500 border-gray-400 cursor-not-allowed opacity-70'
+                  }`}
+                >
+                  {isLoading ? (
+                    <span>Verifying...</span>
+                  ) : (
+                    <>
+                      <span>Verify & {mode === 'signup' ? 'Create Account' : 'Log In'}</span>
+                      <CheckCircle2 className="w-4 h-4" />
+                    </>
+                  )}
+                </button>
+
+                {/* Resend */}
+                <div className="text-center">
+                  <button
+                    type="button"
+                    onClick={(e) => { setOtp(['', '', '', '', '', '']); handleSendOtp(e); }}
+                    className="text-xs font-extrabold text-[#0B3059] hover:text-[#0284C7] underline cursor-pointer"
+                  >
+                    Resend OTP
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+
+          {/* Terms & Footer */}
+          <div className="mt-3 pt-2 text-center">
+            <span className="text-[10px] text-gray-500 font-bold block">
+              CoPassage Commuter Network • Peer-to-Peer Split
+            </span>
+          </div>
+        </div>
+
+        {/* ════════════════ RIGHT: FIREBASE TEST NUMBERS & OTP PANEL ════════════════ */}
+        <div className="w-full lg:w-[420px] bg-gradient-to-b from-[#0F2A4A] to-[#153a63] border-[2.5px] border-[#CAFFA6]/40 rounded-[28px] p-5 sm:p-6 shadow-2xl text-white flex flex-col justify-between overflow-y-auto max-h-[92vh]">
+          <div>
+            {/* Header Badge */}
+            <div className="flex items-center justify-between gap-2 mb-3">
+              <div className="flex items-center gap-2">
+                <span className="w-8 h-8 rounded-xl bg-[#CAFFA6] text-[#0F2A4A] flex items-center justify-center font-black text-sm">
+                  🔥
+                </span>
+                <div>
+                  <span className="text-[9px] uppercase font-black tracking-wider text-[#CAFFA6] block">
+                    Firebase Phone Auth
+                  </span>
+                  <h4 className="text-sm font-black text-white leading-tight">
+                    Test Phone Numbers & OTPs
+                  </h4>
+                </div>
+              </div>
+
+              <span className="text-[10px] font-black bg-white/15 text-[#CAFFA6] px-2.5 py-0.5 rounded-full border border-white/20">
+                Live Credentials
+              </span>
+            </div>
+
+            {/* Offline Payment Notice */}
+            <div className="p-3 bg-white/10 rounded-2xl border border-white/15 mb-3.5 space-y-1">
+              <div className="flex items-center gap-1.5 text-xs font-bold text-[#CAFFA6]">
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>Peer-to-Peer Fare Splitting</span>
+              </div>
+              <p className="text-[11px] text-gray-200 leading-snug">
+                Since online gateway payment is bypassed for direct cash/UPI splitting, use any of these registered test accounts for live authentication.
+              </p>
+            </div>
+
+            {/* List of 5 Test Numbers & Fixed OTPs */}
+            <div className="space-y-2">
+              {FIREBASE_TEST_ACCOUNTS.map((account) => {
+                const isSelected = selectedTestPhone === account.phone || phone.replace(/\D/g, '') === account.phone;
+
+                return (
+                  <div
+                    key={account.phone}
+                    className={`p-3 rounded-2xl border-2 transition-all ${
+                      isSelected
+                        ? 'bg-[#CAFFA6]/15 border-[#CAFFA6] shadow-md ring-1 ring-[#CAFFA6]'
+                        : 'bg-white/5 hover:bg-white/10 border-white/10'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-2 mb-1.5">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-9 h-9 rounded-xl bg-[#CAFFA6] text-[#0F2A4A] font-black text-xs flex items-center justify-center shrink-0">
+                          {account.avatar}
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="font-extrabold text-xs text-white leading-tight">
+                              {account.name}
+                            </span>
+                            <span className="text-[9px] font-black px-1.5 py-0.2 bg-white/10 text-[#CAFFA6] rounded-md">
+                              {account.tag}
+                            </span>
+                          </div>
+                          <span className="font-mono text-xs font-bold text-gray-300 block mt-0.5">
+                            {account.displayPhone}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* OTP Tag with Copy */}
+                      <div className="text-right shrink-0">
+                        <span className="text-[9px] text-gray-400 font-bold uppercase block">Fixed OTP</span>
+                        <div className="flex items-center gap-1 mt-0.5">
+                          <span className="font-mono font-black text-xs px-2 py-0.5 bg-[#CAFFA6] text-[#0F2A4A] rounded-lg tracking-widest">
+                            {account.otp}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleCopyOtp(account.otp)}
+                            className="p-1 hover:bg-white/10 rounded-md text-gray-300 hover:text-white transition-colors cursor-pointer"
+                            title="Copy OTP"
+                          >
+                            {copiedOtp === account.otp ? (
+                              <Check className="w-3.5 h-3.5 text-emerald-400" />
+                            ) : (
+                              <Copy className="w-3.5 h-3.5" />
+                            )}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Quick Action Buttons */}
+                    <div className="flex items-center gap-2 pt-1 border-t border-white/10 text-xs">
+                      <button
+                        type="button"
+                        onClick={() => handleSelectTestAccount(account)}
+                        className="flex-1 py-1.5 px-2.5 bg-white/10 hover:bg-white/20 text-[#CAFFA6] text-[11px] font-bold rounded-xl transition-colors cursor-pointer text-center"
+                      >
+                        ⚡ Fill Phone & OTP
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleInstantTestLogin(account)}
+                        className="py-1.5 px-3 bg-[#CAFFA6] hover:bg-[#b5f88e] text-[#0F2A4A] text-[11px] font-black rounded-xl transition-transform active:scale-95 cursor-pointer flex items-center gap-1 shadow-xs"
+                      >
+                        <span>1-Tap Login</span>
+                        <ArrowRight className="w-3 h-3" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Footer note */}
+          <div className="mt-3 pt-2 border-t border-white/10 text-center">
+            <span className="text-[10px] text-gray-300 font-bold">
+              💡 Tap any test account above to automatically fill or log in instantly.
+            </span>
+          </div>
+        </div>
+
       </div>
     </div>
   );
