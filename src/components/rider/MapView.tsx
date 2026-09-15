@@ -180,7 +180,7 @@ export const MapView: React.FC<MapViewProps> = ({
       const { data, error } = await supabase
         .from('rider_open_posts')
         .select('*')
-        .eq('status', 'active')
+        .eq('status', 'open')
         .gte('last_seen_at', twoMinutesAgo);
 
       if (data && !error) {
@@ -194,26 +194,26 @@ export const MapView: React.FC<MapViewProps> = ({
           if (!routeIntent?.destinationCoords) return true;
 
           // Gate 2: Route direction overlap (bearing ≤ 25°) & destination proximity (≤ 2 km)
-          if (p.destination_lat && p.destination_lng && routeIntent.destinationCoords) {
+          if (p.dest_lat && p.dest_lng && routeIntent.destinationCoords) {
             const userBearing = calculateBearing(
               coords.lat, coords.lng,
               routeIntent.destinationCoords.lat, routeIntent.destinationCoords.lng,
             );
             const postBearing = calculateBearing(
               p.current_lat, p.current_lng,
-              p.destination_lat, p.destination_lng,
+              p.dest_lat, p.dest_lng,
             );
             const bearingDiff = getBearingDifference(userBearing, postBearing);
             const destDistance = calculateDistanceKm(
               routeIntent.destinationCoords.lat, routeIntent.destinationCoords.lng,
-              p.destination_lat, p.destination_lng,
+              p.dest_lat, p.dest_lng,
             );
             return bearingDiff <= 25 && destDistance <= 2.0;
           }
 
           // Fallback: token-based destination text match
-          if (routeIntent?.destination) {
-            return tokenOverlap(routeIntent.destination, p.destination);
+          if (routeIntent?.destination && p.dest_label) {
+            return tokenOverlap(routeIntent.destination, p.dest_label);
           }
 
           return true;
@@ -248,7 +248,7 @@ export const MapView: React.FC<MapViewProps> = ({
 
     // Add or update markers
     nearbyPosts.forEach((post) => {
-      const splitFare = Math.round(post.fare / (post.seats_available + 1));
+      const splitFare = post.total_fare ? Math.round(post.total_fare / post.max_riders) : 0;
       const autoIcon = L.divIcon({
         className: 'custom-auto-marker',
         html: `
@@ -306,7 +306,7 @@ export const MapView: React.FC<MapViewProps> = ({
             if (data) {
               setJoinedPost(data as RiderPost);
             }
-          } else if (updated.status === 'rejected' || updated.status === 'cancelled') {
+          } else if (updated.status === 'rejected') {
             setJoinedPost(null);
           }
         }

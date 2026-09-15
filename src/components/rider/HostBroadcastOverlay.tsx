@@ -18,7 +18,9 @@ export const HostBroadcastOverlay: React.FC<HostBroadcastOverlayProps> = ({
   onStopBroadcast,
 }) => {
   const pendingRequests = incomingRequests.filter((r) => r.status === 'pending');
-  const splitFare = Math.round(post.fare / (post.seats_available + 1));
+  const totalFare = post.total_fare || 0;
+  const maxRiders = post.max_riders || 2;
+  const splitFare = Math.round(totalFare / (maxRiders + 1));
 
   return (
     <div className="absolute bottom-4 left-3 right-3 sm:left-auto sm:right-4 sm:w-96 z-40 bg-white/95 backdrop-blur-md rounded-2xl shadow-2xl border border-teal-waters/15 overflow-hidden animate-slide-up">
@@ -49,10 +51,10 @@ export const HostBroadcastOverlay: React.FC<HostBroadcastOverlayProps> = ({
         <div>
           <div className="flex items-center gap-1.5 text-gray-700 font-medium">
             <MapPin className="w-3.5 h-3.5 text-teal-waters" />
-            <span className="font-bold text-gray-900 truncate max-w-[160px]">{post.destination}</span>
+            <span className="font-bold text-gray-900 truncate max-w-[160px]">{post.dest_label || 'Destination'}</span>
           </div>
           <div className="flex items-center gap-2 mt-1 text-gray-500">
-            <span>{post.seats_available} seats open</span>
+            <span>{maxRiders} seats open</span>
           </div>
         </div>
 

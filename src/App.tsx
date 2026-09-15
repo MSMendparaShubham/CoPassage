@@ -35,20 +35,22 @@ export default function App() {
   const [authMode, setAuthMode] = useState<'signin' | 'signup'>('signin');
   const [currentUser, setCurrentUser] = useState<AuthedUser | null>(null);
   const [viewMode, setViewMode] = useState<'landing' | 'rider'>('landing');
+  const [authLoading, setAuthLoading] = useState<boolean>(true);
 
-  // Sync Firebase Auth state
+  // Sync Firebase Auth state — first callback clears the loading splash
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged((fbUser) => {
       if (fbUser) {
         setCurrentUser({
           uid: fbUser.uid,
-          name: fbUser.displayName || 'CoPassage Commuter',
+          name: fbUser.displayName || 'CoPassage Rider',
           phone: fbUser.phoneNumber || '',
-          role: 'commuter',
+          role: 'rider',
         });
       } else {
         setCurrentUser(null);
       }
+      setAuthLoading(false);
     });
     return () => unsubscribe();
   }, []);
@@ -115,6 +117,27 @@ export default function App() {
     setAuthMode(mode);
     setIsAuthOpen(true);
   };
+
+  // ─── Auth Loading Splash ───
+  // Prevents flash of landing page for already-authenticated users
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-[#F7F9E1] flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4 animate-fade-in">
+          <img
+            src="/CoPassageLOGO2-removebg-preview.png"
+            alt="CoPassage"
+            className="w-16 h-16 object-contain animate-bounce-subtle"
+          />
+          <div className="text-lg font-extrabold tracking-tight text-[#0F2A4A]">
+            <span className="text-[#4A9FE0]">CO</span>
+            <span className="tracking-wider">PASSAGE</span>
+          </div>
+          <div className="w-8 h-8 border-3 border-[#CAFFA6] border-t-[#0F2A4A] rounded-full animate-spin" />
+        </div>
+      </div>
+    );
+  }
 
   if (currentUser && viewMode === 'rider') {
     return (
@@ -741,7 +764,7 @@ export default function App() {
                   <span className="inline-flex items-center gap-1 text-[10px] bg-[#CAFFA6]/20 text-[#CAFFA6] px-2 py-0.5 rounded-full font-bold">
                     New
                   </span>{' '}
-                  <span className="text-gray-400">Driver Partner App</span>
+                  <span className="text-gray-400">Peer Coordination App</span>
                 </li>
               </ul>
             </div>
@@ -777,8 +800,8 @@ export default function App() {
                   </a>
                 </li>
                 <li>
-                  <a href="#drivers" className="hover:text-white transition-colors">
-                    Auto Driver Welfare
+                  <a href="#code" className="hover:text-white transition-colors">
+                    Fair Fare Community Code
                   </a>
                 </li>
                 <li>

@@ -23,7 +23,9 @@ export const JoinRequestModal: React.FC<JoinRequestModalProps> = ({
 
   if (!isOpen || !post) return null;
 
-  const splitFare = Math.round(post.fare / (post.seats_available + 1));
+  const totalFare = post.total_fare || 0;
+  const maxRiders = post.max_riders || 2;
+  const splitFare = Math.round(totalFare / (maxRiders + 1));
 
   const handleSendRequest = async () => {
     setIsSubmitting(true);
@@ -93,18 +95,18 @@ export const JoinRequestModal: React.FC<JoinRequestModalProps> = ({
               <MapPin className="w-5 h-5 text-teal-waters shrink-0 mt-0.5" />
               <div>
                 <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider block">Destination</span>
-                <span className="text-base font-bold text-gray-900">{post.destination}</span>
+                <span className="text-base font-bold text-gray-900">{post.dest_label || 'Destination'}</span>
               </div>
             </div>
 
             <div className="grid grid-cols-2 gap-3 pt-2 border-t border-gray-200 text-xs">
               <div>
                 <span className="text-gray-500 block">Total Auto Fare</span>
-                <span className="font-bold text-gray-800">₹{post.fare}</span>
+                <span className="font-bold text-gray-800">₹{totalFare}</span>
               </div>
               <div>
                 <span className="text-gray-500 block">Available Seats</span>
-                <span className="font-bold text-gray-800">{post.seats_available} open</span>
+                <span className="font-bold text-gray-800">{maxRiders} open</span>
               </div>
             </div>
           </div>

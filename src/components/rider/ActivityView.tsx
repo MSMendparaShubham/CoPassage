@@ -56,7 +56,7 @@ export const ActivityView: React.FC<ActivityViewProps> = ({ user }) => {
         <div className="bg-gradient-to-br from-[#f8f5dd] to-morning-mist text-teal-waters p-4 rounded-2xl border border-teal-waters/20 shadow-xs">
           <span className="text-xs text-gray-600 block">Est. Fare Saved</span>
           <span className="text-2xl font-black font-mono mt-1 block">
-            ₹{rides.reduce((acc, r) => acc + Math.round(r.fare * 0.5), 0)}
+            ₹{rides.reduce((acc, r) => acc + Math.round((r.total_fare || 0) * 0.5), 0)}
           </span>
           <span className="text-[10px] text-emerald-700 font-semibold block mt-1">
             vs solo auto booking
@@ -87,19 +87,19 @@ export const ActivityView: React.FC<ActivityViewProps> = ({ user }) => {
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
                   <MapPin className="w-4 h-4 text-teal-waters shrink-0" />
-                  <span className="font-bold text-sm text-gray-900">{ride.destination}</span>
+                  <span className="font-bold text-sm text-gray-900">{ride.dest_label || 'Destination'}</span>
                 </div>
                 <div className="flex items-center gap-3 text-xs text-gray-500">
                   <span>{new Date(ride.created_at).toLocaleDateString()}</span>
                   <span>•</span>
                   <span className="capitalize">{ride.status}</span>
                   <span>•</span>
-                  <span>{ride.seats_available} seats</span>
+                  <span>{ride.max_riders || 2} seats</span>
                 </div>
               </div>
 
               <div className="text-right">
-                <span className="text-base font-extrabold text-teal-waters font-mono">₹{ride.fare}</span>
+                <span className="text-base font-extrabold text-teal-waters font-mono">₹{ride.total_fare || 0}</span>
                 <span className="text-[10px] text-gray-400 block">total meter</span>
               </div>
             </div>

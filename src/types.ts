@@ -1,3 +1,5 @@
+// ─── Animation Types (Landing Page Explainer) ───
+
 export interface AnimationBeat {
   id: string;
   number: number | string;
@@ -74,6 +76,8 @@ export const BEATS: AnimationBeat[] = [
   },
 ];
 
+// ─── Brand Palette ───
+
 export interface BrandColor {
   name: string;
   role: string;
@@ -142,6 +146,8 @@ export const BRAND_PALETTE: BrandColor[] = [
   },
 ];
 
+// ─── Domain Types (aligned to master spec schema) ───
+
 export interface AuthedUser {
   uid: string;
   name: string;
@@ -149,20 +155,32 @@ export interface AuthedUser {
   role: string;
 }
 
+export interface Profile {
+  id: string;        // Firebase UID
+  phone: string | null;
+  full_name: string | null;
+  role: 'rider' | 'city_staff' | 'help_center' | 'admin' | null;
+  zone_id: string | null;
+  created_at: string;
+}
+
 export interface RiderPost {
   id: string;
   host_uid: string;
   host_name: string;
   host_phone: string;
-  destination: string;
-  destination_lat?: number | null;
-  destination_lng?: number | null;
-  fare: number;
-  seats_available: number;
+  origin_lat: number;
+  origin_lng: number;
+  dest_lat: number | null;
+  dest_lng: number | null;
+  dest_label: string | null;
   current_lat: number;
   current_lng: number;
-  status: 'active' | 'matched' | 'completed' | 'cancelled';
-  host_marked_complete?: boolean;
+  total_fare: number | null;
+  max_riders: number;
+  current_riders: number;
+  status: 'open' | 'matched' | 'completed' | 'cancelled';
+  host_marked_complete: boolean;
   last_seen_at: string;
   created_at: string;
 }
@@ -173,12 +191,11 @@ export interface JoinRequest {
   requester_uid: string;
   requester_name: string;
   requester_phone: string;
-  status: 'pending' | 'accepted' | 'rejected' | 'cancelled';
   requester_lat: number | null;
   requester_lng: number | null;
-  rider_marked_complete?: boolean;
+  rider_marked_complete: boolean;
+  status: 'pending' | 'accepted' | 'rejected';
   created_at: string;
-  updated_at: string;
 }
 
 export interface RideMessage {
@@ -186,18 +203,22 @@ export interface RideMessage {
   post_id: string;
   sender_uid: string;
   sender_name: string;
-  content: string;
+  body: string;
   created_at: string;
 }
 
 export interface SosEvent {
   id: string;
-  post_id: string;
-  triggered_by_uid: string;
-  triggered_by_name: string;
-  triggered_by_phone: string;
-  lat: number | null;
-  lng: number | null;
+  rider_uid: string;
+  rider_name: string;
+  rider_phone: string;
+  post_id: string | null;
+  latitude: number;
+  longitude: number;
+  description: string | null;
+  status: 'active' | 'acknowledged' | 'resolved';
+  acknowledged_by: string | null;
+  resolved_at: string | null;
   created_at: string;
 }
 
@@ -208,5 +229,16 @@ export interface RiderRating {
   rated_uid: string;
   stars: number;
   comment?: string | null;
+  created_at: string;
+}
+
+export interface SupportTicket {
+  id: string;
+  rider_uid: string;
+  severity: 'low' | 'medium' | 'high' | 'urgent';
+  category: 'fare_dispute' | 'safety' | 'vehicle_condition' | 'driver_behavior' | 'app_issue' | 'payment' | 'route_deviation' | 'other';
+  subject: string | null;
+  description: string | null;
+  status: string;
   created_at: string;
 }

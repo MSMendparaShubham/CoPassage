@@ -183,7 +183,9 @@ export const ActiveRideOverlay: React.FC<ActiveRideOverlayProps> = ({
     }
   };
 
-  const splitFare = Math.round(post.fare / (post.seats_available + 1));
+  const totalFare = post.total_fare || 0;
+  const maxRiders = post.max_riders || 2;
+  const splitFare = Math.round(totalFare / (maxRiders + 1));
 
   // ─── Post-Ride Review Screen ───
   if (showReview) {
@@ -260,7 +262,7 @@ export const ActiveRideOverlay: React.FC<ActiveRideOverlayProps> = ({
         <div className="p-4 bg-morning-mist rounded-2xl border border-teal-waters/10 flex items-center justify-between text-xs text-gray-700 mb-4">
           <div className="flex items-center gap-2">
             <MapPin className="w-4 h-4 text-teal-waters shrink-0" />
-            <span className="truncate max-w-[200px] font-medium">{post.destination}</span>
+            <span className="truncate max-w-[200px] font-medium">{post.dest_label || 'Destination'}</span>
           </div>
           <span className="text-[11px] text-gray-500 font-medium">Pay offline</span>
         </div>

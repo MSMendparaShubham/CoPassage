@@ -18,9 +18,9 @@ export function useBroadcast(user: AuthedUser | null, coords: LocationCoordinate
   // Start broadcasting a found auto
   const startBroadcast = useCallback(
     async (
-      destination: string,
-      fare: number,
-      seatsAvailable: number = 2,
+      destLabel: string,
+      totalFare: number,
+      maxRiders: number = 3,
       destCoords?: LocationCoordinates | null
     ) => {
       if (!user) {
@@ -36,14 +36,17 @@ export function useBroadcast(user: AuthedUser | null, coords: LocationCoordinate
             host_uid: user.uid,
             host_name: user.name,
             host_phone: user.phone,
-            destination,
-            destination_lat: destCoords ? destCoords.lat : null,
-            destination_lng: destCoords ? destCoords.lng : null,
-            fare,
-            seats_available: seatsAvailable,
+            origin_lat: coordsRef.current.lat,
+            origin_lng: coordsRef.current.lng,
+            dest_label: destLabel,
+            dest_lat: destCoords ? destCoords.lat : null,
+            dest_lng: destCoords ? destCoords.lng : null,
             current_lat: coordsRef.current.lat,
             current_lng: coordsRef.current.lng,
-            status: 'active',
+            total_fare: totalFare,
+            max_riders: maxRiders,
+            current_riders: 1,
+            status: 'open',
             host_marked_complete: false,
             last_seen_at: new Date().toISOString(),
           })
@@ -95,7 +98,7 @@ export function useBroadcast(user: AuthedUser | null, coords: LocationCoordinate
         // 1. Accept the join request
         const { error: reqError } = await supabase
           .from('join_requests')
-          .update({ status: 'accepted', updated_at: new Date().toISOString() })
+          .update({ status: 'accepted' })
           .eq('id', request.id);
 
         if (reqError) throw reqError;
@@ -122,7 +125,7 @@ export function useBroadcast(user: AuthedUser | null, coords: LocationCoordinate
     try {
       await supabase
         .from('join_requests')
-        .update({ status: 'rejected', updated_at: new Date().toISOString() })
+        .update({ status: 'rejected' })
         .eq('id', requestId);
 
       setIncomingRequests((prev) => prev.filter((r) => r.id !== requestId));
@@ -207,7 +210,6 @@ export function useBroadcast(user: AuthedUser | null, coords: LocationCoordinate
   useEffect(() => {
     const handleBeforeUnload = () => {
       if (activePost && isBroadcasting) {
-        // Best effort beacon or update
         stopBroadcast();
       }
     };

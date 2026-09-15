@@ -34,14 +34,15 @@ export const SOSModal: React.FC<SOSModalProps> = ({
     setError(null);
 
     try {
-      // 1. MUST write to rider_sos_events FIRST before updating UI
       const { error: insertError } = await supabase.from('rider_sos_events').insert({
         post_id: postId,
-        triggered_by_uid: user.uid,
-        triggered_by_name: user.name,
-        triggered_by_phone: user.phone,
-        lat: coords.lat,
-        lng: coords.lng,
+        rider_uid: user.uid,
+        rider_name: user.name,
+        rider_phone: user.phone,
+        latitude: coords.lat,
+        longitude: coords.lng,
+        status: 'active',
+        description: 'Emergency SOS triggered from active ride',
       });
 
       if (insertError) {

@@ -83,7 +83,7 @@ export const RiderChat: React.FC<RiderChatProps> = ({
         post_id: postId,
         sender_uid: user.uid,
         sender_name: user.name,
-        content,
+        body: content,
       });
 
       if (error) {
@@ -162,7 +162,7 @@ export const RiderChat: React.FC<RiderChatProps> = ({
                         : 'bg-white text-gray-800 border border-gray-200 rounded-tl-xs'
                     }`}
                   >
-                    {msg.content}
+                    {msg.body}
                   </div>
                 </div>
               );
