@@ -150,9 +150,9 @@ export default function App() {
 
       {/* Top Sticky Brand Navigation */}
       <header className="w-full bg-[#F7F9E1]/95 border-b-2 border-[#0F2A4A]/15 sticky top-0 z-50 backdrop-blur-md">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-4">
           {/* Brand Wordmark */}
-          <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-2.5 shrink-0">
             <img
               src="/CoPassageLOGO2-removebg-preview.png"
               alt="CoPassage Logo"
@@ -170,7 +170,7 @@ export default function App() {
           </div>
 
           {/* Nav Links */}
-          <div className="hidden md:flex items-center gap-6 text-xs font-extrabold text-[#204654]">
+          <div className="hidden xl:flex items-center gap-6 text-xs font-extrabold text-[#204654] shrink-0">
             <a href="#explainer" className="hover:text-[#0F2A4A] transition-colors">
               How It Works
             </a>
@@ -197,7 +197,7 @@ export default function App() {
           </div>
 
           {/* Action CTAs */}
-          <div className="flex items-center gap-2 sm:gap-3">
+          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
             <button
               onClick={() => setShowIntroVideo(true)}
               className="bg-white hover:bg-white/80 text-[#0F2A4A] text-xs font-extrabold px-3 py-1.5 rounded-full border-2 border-[#0F2A4A] shadow-[0_2px_0_#0F2A4A] active:translate-y-0.5 flex items-center gap-1.5 transition-all cursor-pointer"
@@ -210,17 +210,19 @@ export default function App() {
             {currentUser ? (
               <div className="flex items-center gap-2">
                 <button
+                  type="button"
                   onClick={() => setViewMode('rider')}
-                  className="bg-[#CAFFA6] hover:bg-[#b8f78f] text-[#0F2A4A] text-xs font-black px-3.5 py-1.5 rounded-full border-2 border-[#0F2A4A] flex items-center gap-1.5 shadow-[0_2px_0_#0F2A4A] active:translate-y-0.5 transition-all cursor-pointer"
+                  className="bg-[#CAFFA6] hover:bg-[#b8f78f] text-[#0F2A4A] text-xs font-extrabold px-3 py-1.5 rounded-full border-2 border-[#0F2A4A] flex items-center gap-1.5 shadow-xs cursor-pointer active:translate-y-0.5 transition-all"
+                  title="Open Rider Coordination"
                 >
-                  <span>Open Rider App</span>
-                  <ArrowRight className="w-3.5 h-3.5 stroke-[2.5]" />
-                </button>
-                <div className="hidden sm:flex bg-white text-[#0F2A4A] text-xs font-bold px-3 py-1.5 rounded-full border-2 border-[#0F2A4A] items-center gap-1.5 shadow-xs">
-                  <User className="w-3.5 h-3.5 text-[#0F2A4A]" />
+                  <User className="w-3.5 h-3.5" />
                   <span>{currentUser.name}</span>
-                </div>
+                  <span className="bg-[#0F2A4A] text-[#CAFFA6] text-[10px] px-1.5 py-0.2 rounded-full font-mono">
+                    ₹50
+                  </span>
+                </button>
                 <button
+                  type="button"
                   onClick={() => {
                     auth.signOut();
                     setCurrentUser(null);
@@ -235,15 +237,15 @@ export default function App() {
               <>
                 <button
                   onClick={() => openAuth('signin')}
-                  className="text-xs font-black text-[#0F2A4A] hover:underline px-2.5 py-1 cursor-pointer"
+                  className="hidden sm:flex text-xs font-extrabold text-[#0F2A4A] hover:underline px-2 cursor-pointer"
                 >
                   Sign In
                 </button>
                 <button
                   onClick={() => openAuth('signup')}
-                  className="bg-[#CAFFA6] hover:bg-[#b8f78f] text-[#0F2A4A] text-xs font-black px-4 py-1.5 rounded-full border-2 border-[#0F2A4A] shadow-[0_3px_0_#0F2A4A] hover:shadow-xs transition-all active:translate-y-0.5 flex items-center gap-1.5 cursor-pointer"
+                  className="bg-[#CAFFA6] hover:bg-[#b8f78f] text-[#0F2A4A] text-xs font-extrabold px-4 py-1.5 rounded-full border-2 border-[#0F2A4A] shadow-[0_3px_0_#0F2A4A] hover:shadow-xs transition-all active:translate-y-0.5 flex items-center gap-1.5 cursor-pointer"
                 >
-                  <span>Join / Split</span>
+                  <span>Split Fare</span>
                   <span className="text-xs">⚡</span>
                 </button>
               </>
