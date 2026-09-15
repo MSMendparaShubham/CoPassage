@@ -9,10 +9,7 @@ import {
   Loader2,
   Navigation,
   ExternalLink,
-  Compass,
-  Route,
-  Zap,
-  ArrowRight
+  Compass
 } from 'lucide-react';
 import { RiderPost, JoinRequest, AuthedUser } from '../../types';
 import { LocationCoordinates } from '../../hooks/useGeolocation';
@@ -63,8 +60,8 @@ export const ActiveRideOverlay: React.FC<ActiveRideOverlayProps> = ({
     : post.host_phone;
 
   // ─── Google Maps Turn-by-Turn Coordinate Calculation ───
-  const hostLat = coords.lat || post.current_lat || post.origin_lat || 22.5996;
-  const hostLng = coords.lng || post.current_lng || post.origin_lng || 72.8205;
+  const hostLat = coords?.lat || post.current_lat || post.origin_lat || 22.5996;
+  const hostLng = coords?.lng || post.current_lng || post.origin_lng || 72.8205;
   const requesterLat = matchedRequest?.requester_lat || (hostLat + 0.0032);
   const requesterLng = matchedRequest?.requester_lng || (hostLng + 0.0032);
 
@@ -75,7 +72,7 @@ export const ActiveRideOverlay: React.FC<ActiveRideOverlayProps> = ({
 
   // Once accepted, requester updates their location in join_requests
   useEffect(() => {
-    if (!isHost && matchedRequest?.id && coords) {
+    if (!isHost && matchedRequest?.id && coords?.lat && coords?.lng) {
       const updateRequesterLocation = async () => {
         try {
           await supabase
@@ -95,7 +92,7 @@ export const ActiveRideOverlay: React.FC<ActiveRideOverlayProps> = ({
       const interval = setInterval(updateRequesterLocation, 10000);
       return () => clearInterval(interval);
     }
-  }, [isHost, matchedRequest?.id, coords.lat, coords.lng]);
+  }, [isHost, matchedRequest?.id, coords?.lat, coords?.lng]);
 
   // Subscribe to rider_open_posts Realtime for host_marked_complete and status
   useEffect(() => {
@@ -259,7 +256,7 @@ export const ActiveRideOverlay: React.FC<ActiveRideOverlayProps> = ({
   // ─── Active Ride Full-View Dashboard ───
   return (
     <>
-      <div className="flex-1 flex flex-col p-4 sm:p-6 animate-fade-in max-w-2xl mx-auto w-full">
+      <div className="flex-1 flex flex-col p-4 sm:p-6 pb-36 sm:pb-44 animate-fade-in max-w-2xl mx-auto w-full">
         {/* Status Header Card */}
         <div className="bg-[#0F2A4A] text-white rounded-3xl overflow-hidden shadow-lg mb-4 border-2 border-[#0F2A4A]/20">
           <div className="px-5 py-4 flex items-center justify-between">

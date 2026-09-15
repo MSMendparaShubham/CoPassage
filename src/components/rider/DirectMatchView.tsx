@@ -345,7 +345,7 @@ export const DirectMatchView: React.FC<DirectMatchViewProps> = ({
     const requestToUse = incomingRequests.find((r) => r.status === 'accepted') || demoMatchedRequest;
 
     return (
-      <div className="w-full min-h-[calc(100dvh-64px-64px)] p-4 sm:p-6 flex items-center justify-center">
+      <div className="w-full min-h-full p-4 sm:p-6 pb-36 sm:pb-44 flex flex-col items-center justify-start">
         <ActiveRideOverlay
           user={user}
           post={postToUse}
@@ -365,7 +365,7 @@ export const DirectMatchView: React.FC<DirectMatchViewProps> = ({
   // ─── 2. RENDER: Matched Requester State (Active In-Ride Overlay) ───
   if (isMatchedRequester && joinedPost) {
     return (
-      <div className="w-full min-h-[calc(100dvh-64px-64px)] p-4 sm:p-6 flex items-center justify-center">
+      <div className="w-full min-h-full p-4 sm:p-6 pb-36 sm:pb-44 flex flex-col items-center justify-start">
         <ActiveRideOverlay
           user={user}
           post={joinedPost}
