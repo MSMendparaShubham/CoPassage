@@ -30,6 +30,31 @@ export const RiderChat: React.FC<RiderChatProps> = ({
   useEffect(() => {
     if (!isOpen || !postId) return;
 
+    if (postId.startsWith('demo-')) {
+      // Provide rich starter messages for demo
+      const starterMessages: RideMessage[] = [
+        {
+          id: 'demo-msg-1',
+          post_id: postId,
+          sender_uid: 'demo-user-partner',
+          sender_name: partnerName,
+          body: `Hey! I'm near the station corridor, walking towards Pillar 4.`,
+          created_at: new Date(Date.now() - 45000).toISOString(),
+        },
+        {
+          id: 'demo-msg-2',
+          post_id: postId,
+          sender_uid: user.uid,
+          sender_name: user.name,
+          body: `Great! The yellow auto is right here (GJ-07-AB-1234). Waiting for you!`,
+          created_at: new Date(Date.now() - 20000).toISOString(),
+        },
+      ];
+      setMessages(starterMessages);
+      setTimeout(scrollToBottom, 100);
+      return;
+    }
+
     // Fetch existing messages
     const fetchMessages = async () => {
       const { data, error } = await supabase
@@ -68,7 +93,7 @@ export const RiderChat: React.FC<RiderChatProps> = ({
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [isOpen, postId]);
+  }, [isOpen, postId, partnerName, user.name, user.uid]);
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -77,6 +102,35 @@ export const RiderChat: React.FC<RiderChatProps> = ({
 
     setIsSending(true);
     setInputText('');
+
+    if (postId.startsWith('demo-')) {
+      const newMsg: RideMessage = {
+        id: 'demo-msg-' + Date.now(),
+        post_id: postId,
+        sender_uid: user.uid,
+        sender_name: user.name,
+        body: content,
+        created_at: new Date().toISOString(),
+      };
+      setMessages((prev) => [...prev, newMsg]);
+      setTimeout(scrollToBottom, 50);
+      setIsSending(false);
+
+      // Simulate a quick friendly reply from the co-rider after 1.5s
+      setTimeout(() => {
+        const replyMsg: RideMessage = {
+          id: 'demo-msg-reply-' + Date.now(),
+          post_id: postId,
+          sender_uid: 'demo-user-partner',
+          sender_name: partnerName,
+          body: 'Got it, stepping in now! 👍',
+          created_at: new Date().toISOString(),
+        };
+        setMessages((prev) => [...prev, replyMsg]);
+        setTimeout(scrollToBottom, 50);
+      }, 1500);
+      return;
+    }
 
     try {
       const { error } = await supabase.from('ride_messages').insert({

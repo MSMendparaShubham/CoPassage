@@ -27,6 +27,11 @@ export const ReviewScreen: React.FC<ReviewScreenProps> = ({
 
   // Check for existing review (handles page refresh / re-entry)
   useEffect(() => {
+    if (postId.startsWith('demo-')) {
+      setCheckingDuplicate(false);
+      return;
+    }
+
     const checkExisting = async () => {
       try {
         const { data } = await supabase
@@ -48,11 +53,20 @@ export const ReviewScreen: React.FC<ReviewScreenProps> = ({
       }
     };
     checkExisting();
-  }, [postId, user.uid]);
+  }, [postId, user.uid, onDone]);
 
   const handleSubmit = async () => {
     if (stars === 0) return;
     setIsSubmitting(true);
+
+    if (postId.startsWith('demo-')) {
+      setTimeout(() => {
+        setSubmitted(true);
+        setTimeout(onDone, 1200);
+      }, 500);
+      return;
+    }
+
     try {
       await supabase.from('rider_ratings').insert({
         post_id: postId,

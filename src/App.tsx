@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { VideoPlayer } from './components/VideoPlayer';
 import { IntroVideoOverlay } from './components/IntroVideoOverlay';
+import { DemoScenariosModal } from './components/DemoScenariosModal';
 import { AuthModal } from './components/AuthModal';
 import { RiderHome } from './components/rider/RiderHome';
 import { AuthedUser } from './types';
@@ -27,8 +28,10 @@ import {
 } from 'lucide-react';
 
 export default function App() {
-  // Intro Video Playback state (manual trigger via navbar)
-  const [showIntroVideo, setShowIntroVideo] = useState<boolean>(false);
+  // Intro Video Playback state (loads automatically on web load)
+  const [showIntroVideo, setShowIntroVideo] = useState<boolean>(true);
+  const [showDemoModal, setShowDemoModal] = useState<boolean>(false);
+  const [scenarioMode, setScenarioMode] = useState<string | null>(null);
 
   // Authentication Modal State
   const [isAuthOpen, setIsAuthOpen] = useState<boolean>(false);
@@ -118,6 +121,33 @@ export default function App() {
     setIsAuthOpen(true);
   };
 
+  const handleLaunchScenario = (scenarioId: string) => {
+    if (scenarioId === 'video_explainer') {
+      setShowIntroVideo(true);
+      return;
+    }
+    if (scenarioId === 'fare_calculator') {
+      setViewMode('landing');
+      setScenarioMode(null);
+      setTimeout(() => {
+        const el = document.getElementById('calculator');
+        if (el) el.scrollIntoView({ behavior: 'smooth' });
+      }, 100);
+      return;
+    }
+
+    // Set a verified demo commuter user if not authenticated
+    const demoUser: AuthedUser = currentUser || {
+      uid: 'demo-commuter-001',
+      name: 'CoPassage Demo Commuter',
+      phone: '+91 98245 97605',
+      role: 'rider',
+    };
+    setCurrentUser(demoUser);
+    setScenarioMode(scenarioId);
+    setViewMode('rider');
+  };
+
   // ─── Auth Loading Splash ───
   // Prevents flash of landing page for already-authenticated users
   if (authLoading) {
@@ -141,15 +171,27 @@ export default function App() {
 
   if (currentUser && viewMode === 'rider') {
     return (
-      <RiderHome
-        user={currentUser}
-        onSignOut={() => {
-          auth.signOut();
-          setCurrentUser(null);
-          setViewMode('landing');
-        }}
-        onViewLandingPage={() => setViewMode('landing')}
-      />
+      <>
+        <DemoScenariosModal
+          isOpen={showDemoModal}
+          onClose={() => setShowDemoModal(false)}
+          onLaunchScenario={handleLaunchScenario}
+        />
+        <RiderHome
+          user={currentUser}
+          onSignOut={() => {
+            auth.signOut();
+            setCurrentUser(null);
+            setScenarioMode(null);
+            setViewMode('landing');
+          }}
+          onViewLandingPage={() => setViewMode('landing')}
+          onOpenDemo={() => setShowDemoModal(true)}
+          scenarioMode={scenarioMode}
+          onClearScenario={() => setScenarioMode(null)}
+          onSwitchScenario={(id) => setScenarioMode(id)}
+        />
+      </>
     );
   }
 
@@ -159,6 +201,13 @@ export default function App() {
       {showIntroVideo && (
         <IntroVideoOverlay onComplete={() => setShowIntroVideo(false)} />
       )}
+
+      {/* Demo Scenarios Modal */}
+      <DemoScenariosModal
+        isOpen={showDemoModal}
+        onClose={() => setShowDemoModal(false)}
+        onLaunchScenario={handleLaunchScenario}
+      />
 
       {/* Auth Modal (Sign In / Sign Up) */}
       <AuthModal
@@ -211,6 +260,17 @@ export default function App() {
 
           {/* Action CTAs */}
           <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+            {/* Demo Button (Left of Intro Video) */}
+            <button
+              id="demo-scenarios-button"
+              onClick={() => setShowDemoModal(true)}
+              className="bg-[#CAFFA6] hover:bg-[#b8f78f] text-[#0F2A4A] text-xs font-black px-3.5 py-1.5 rounded-full border-2 border-[#0F2A4A] shadow-[0_2px_0_#0F2A4A] active:translate-y-0.5 flex items-center gap-1.5 transition-all cursor-pointer"
+              title="Explore interactive live demo scenarios"
+            >
+              <Zap className="w-3.5 h-3.5 fill-[#0F2A4A] text-[#0F2A4A]" />
+              <span>Demo</span>
+            </button>
+
             <button
               onClick={() => setShowIntroVideo(true)}
               className="bg-white hover:bg-white/80 text-[#0F2A4A] text-xs font-extrabold px-3 py-1.5 rounded-full border-2 border-[#0F2A4A] shadow-[0_2px_0_#0F2A4A] active:translate-y-0.5 flex items-center gap-1.5 transition-all cursor-pointer"

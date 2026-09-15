@@ -1,5 +1,19 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { MessageSquare, ShieldAlert, CheckCircle, MapPin, Phone, Clock, Loader2 } from 'lucide-react';
+import {
+  MessageSquare,
+  ShieldAlert,
+  CheckCircle,
+  MapPin,
+  Phone,
+  Clock,
+  Loader2,
+  Navigation,
+  ExternalLink,
+  Compass,
+  Route,
+  Zap,
+  ArrowRight
+} from 'lucide-react';
 import { RiderPost, JoinRequest, AuthedUser } from '../../types';
 import { LocationCoordinates } from '../../hooks/useGeolocation';
 import { RiderChat } from './RiderChat';
@@ -47,6 +61,17 @@ export const ActiveRideOverlay: React.FC<ActiveRideOverlayProps> = ({
   const partnerPhone = isHost
     ? matchedRequest?.requester_phone || ''
     : post.host_phone;
+
+  // ─── Google Maps Turn-by-Turn Coordinate Calculation ───
+  const hostLat = coords.lat || post.current_lat || post.origin_lat || 22.5996;
+  const hostLng = coords.lng || post.current_lng || post.origin_lng || 72.8205;
+  const requesterLat = matchedRequest?.requester_lat || (hostLat + 0.0032);
+  const requesterLng = matchedRequest?.requester_lng || (hostLng + 0.0032);
+
+  // When Host wants to find the Co-Passage: Host is Source -> Requester is Destination
+  const googleMapsDirectionsUrl = isHost
+    ? `https://www.google.com/maps/dir/?api=1&origin=${hostLat.toFixed(6)},${hostLng.toFixed(6)}&destination=${requesterLat.toFixed(6)},${requesterLng.toFixed(6)}&travelmode=driving`
+    : `https://www.google.com/maps/dir/?api=1&origin=${requesterLat.toFixed(6)},${requesterLng.toFixed(6)}&destination=${hostLat.toFixed(6)},${hostLng.toFixed(6)}&travelmode=walking`;
 
   // Once accepted, requester updates their location in join_requests
   useEffect(() => {
@@ -148,6 +173,28 @@ export const ActiveRideOverlay: React.FC<ActiveRideOverlayProps> = ({
 
   const handleMarkComplete = async () => {
     setIsMarking(true);
+
+    if (post.id.startsWith('demo-')) {
+      setTimeout(() => {
+        if (isHost) {
+          setHostComplete(true);
+        } else {
+          setRiderComplete(true);
+        }
+        setIsMarking(false);
+        setMarkedAt(Date.now());
+
+        // Simulate partner completing 1.2 seconds later
+        setTimeout(() => {
+          setHostComplete(true);
+          setRiderComplete(true);
+          setRideCompleted(true);
+          setShowReview(true);
+        }, 1200);
+      }, 500);
+      return;
+    }
+
     try {
       if (isHost) {
         // Host writes to their own rider_open_posts row
@@ -175,6 +222,12 @@ export const ActiveRideOverlay: React.FC<ActiveRideOverlayProps> = ({
   };
 
   const handleAutoComplete = async () => {
+    if (post.id.startsWith('demo-')) {
+      setRideCompleted(true);
+      setShowReview(true);
+      return;
+    }
+
     try {
       await supabase.rpc('auto_complete_abandoned_ride', { p_post_id: post.id });
       setRideCompleted(true);
@@ -206,20 +259,20 @@ export const ActiveRideOverlay: React.FC<ActiveRideOverlayProps> = ({
   // ─── Active Ride Full-View Dashboard ───
   return (
     <>
-      <div className="flex-1 flex flex-col p-4 sm:p-6 animate-fade-in">
+      <div className="flex-1 flex flex-col p-4 sm:p-6 animate-fade-in max-w-2xl mx-auto w-full">
         {/* Status Header Card */}
-        <div className="bg-teal-waters text-white rounded-2xl overflow-hidden shadow-lg mb-4">
+        <div className="bg-[#0F2A4A] text-white rounded-3xl overflow-hidden shadow-lg mb-4 border-2 border-[#0F2A4A]/20">
           <div className="px-5 py-4 flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <span className="w-3 h-3 rounded-full bg-spring-meadow animate-pulse shrink-0"></span>
+              <span className="w-3.5 h-3.5 rounded-full bg-[#CAFFA6] animate-pulse shrink-0"></span>
               <div>
-                <h4 className="text-base font-bold leading-tight">Active Shared Ride</h4>
-                <p className="text-xs text-glacial-sky mt-0.5">Co-Rider Matched • Ride in Progress</p>
+                <h4 className="text-base font-black leading-tight text-[#CAFFA6]">Active Shared Ride</h4>
+                <p className="text-xs text-glacial-sky mt-0.5 font-medium">Co-Rider Matched • CoPassage in Progress</p>
               </div>
             </div>
             <button
               onClick={() => setIsSosOpen(true)}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-bold shadow-sm transition-colors cursor-pointer"
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-black shadow-sm transition-all cursor-pointer active:scale-95"
             >
               <ShieldAlert className="w-4 h-4" />
               <span>SOS</span>
@@ -227,24 +280,73 @@ export const ActiveRideOverlay: React.FC<ActiveRideOverlayProps> = ({
           </div>
         </div>
 
-        {/* Co-Rider Profile Card */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 mb-4">
+        {/* ================= GOOGLE MAPS TURN-BY-TURN CARD ================= */}
+        <div className="bg-white/95 backdrop-blur-md rounded-3xl shadow-md border-2 border-[#0F2A4A]/15 p-5 mb-4 space-y-4">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-2xl bg-glacial-sky/30 border border-teal-waters/15 flex items-center justify-center text-teal-waters font-bold text-lg">
+            <div className="flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-xl bg-emerald-100 border border-emerald-300 text-emerald-800 flex items-center justify-center font-black">
+                <Navigation className="w-4.5 h-4.5 fill-current" />
+              </div>
+              <div>
+                <span className="text-[10px] font-black uppercase tracking-wider text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
+                  Google Maps Live Route
+                </span>
+                <h4 className="text-sm font-black text-[#0F2A4A] mt-0.5">
+                  {isHost ? `Pickup Directions to ${partnerName}` : `Directions to ${partnerName}'s Auto`}
+                </h4>
+              </div>
+            </div>
+
+            <span className="text-[11px] font-bold text-gray-500 font-mono">
+              ~200m • 2 mins
+            </span>
+          </div>
+
+          {/* Source ➔ Destination Coordinate Route */}
+          <div className="p-3 bg-[#F7F9E1] rounded-2xl border border-[#0F2A4A]/10 text-xs space-y-2">
+            <div className="flex items-center gap-2 text-[#0F2A4A] font-bold">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0"></span>
+              <span className="text-gray-500 font-medium">Source (Host):</span>
+              <span className="font-mono text-xs">{hostLat.toFixed(4)}, {hostLng.toFixed(4)}</span>
+            </div>
+            <div className="flex items-center gap-2 text-[#0F2A4A] font-bold">
+              <span className="w-2.5 h-2.5 rounded-full bg-red-500 shrink-0"></span>
+              <span className="text-gray-500 font-medium">Destination (Pickup):</span>
+              <span className="font-mono text-xs">{requesterLat.toFixed(4)}, {requesterLng.toFixed(4)}</span>
+            </div>
+          </div>
+
+          {/* Primary Google Maps Navigation Button */}
+          <a
+            href={googleMapsDirectionsUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="w-full py-3.5 px-4 bg-[#0F2A4A] hover:bg-[#1c456f] text-[#CAFFA6] font-black text-xs sm:text-sm rounded-2xl shadow-sm flex items-center justify-center gap-2.5 transition-all active:scale-[0.98] cursor-pointer"
+          >
+            <Compass className="w-4 h-4 animate-spin-slow" />
+            <span>🧭 Open Google Maps Turn-by-Turn Directions</span>
+            <ExternalLink className="w-3.5 h-3.5" />
+          </a>
+        </div>
+
+        {/* Co-Rider Profile Card */}
+        <div className="bg-white/95 backdrop-blur-md rounded-3xl shadow-sm border-2 border-[#0F2A4A]/10 p-5 mb-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3.5">
+              <div className="w-13 h-13 rounded-2xl bg-[#0F2A4A] text-[#CAFFA6] flex items-center justify-center font-black text-xl shadow-xs">
                 {partnerName.charAt(0).toUpperCase()}
               </div>
               <div>
-                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block">
+                <span className="text-[10px] font-extrabold text-gray-400 uppercase tracking-wider block">
                   {isHost ? 'Co-Rider in your auto' : 'Ride Host (Found the auto)'}
                 </span>
-                <span className="font-bold text-base text-gray-900 block">{partnerName}</span>
+                <span className="font-black text-base text-[#0F2A4A] block">{partnerName}</span>
                 {partnerPhone && (
                   <a
                     href={`tel:${partnerPhone}`}
-                    className="text-xs text-teal-waters flex items-center gap-1 hover:underline mt-0.5"
+                    className="text-xs text-[#0F2A4A] font-bold flex items-center gap-1 hover:underline mt-0.5"
                   >
-                    <Phone className="w-3 h-3" />
+                    <Phone className="w-3 h-3 text-emerald-600" />
                     <span>{partnerPhone}</span>
                   </a>
                 )}
@@ -252,19 +354,23 @@ export const ActiveRideOverlay: React.FC<ActiveRideOverlayProps> = ({
             </div>
 
             <div className="text-right">
-              <span className="text-[10px] text-gray-500 uppercase tracking-wider block">Split Per Person</span>
-              <span className="text-xl font-extrabold text-teal-waters font-mono">₹{splitFare}</span>
+              <span className="text-[10px] text-gray-500 uppercase tracking-wider block font-extrabold">
+                Split Per Person
+              </span>
+              <span className="text-2xl font-black text-[#0F2A4A] font-mono">₹{splitFare}</span>
             </div>
           </div>
         </div>
 
         {/* Route & Payment Reminder */}
-        <div className="p-4 bg-morning-mist rounded-2xl border border-teal-waters/10 flex items-center justify-between text-xs text-gray-700 mb-4">
+        <div className="p-4 bg-[#F7F9E1] rounded-2xl border border-[#0F2A4A]/10 flex items-center justify-between text-xs text-gray-700 mb-4">
           <div className="flex items-center gap-2">
-            <MapPin className="w-4 h-4 text-teal-waters shrink-0" />
-            <span className="truncate max-w-[200px] font-medium">{post.dest_label || 'Destination'}</span>
+            <MapPin className="w-4 h-4 text-[#4A9FE0] shrink-0" />
+            <span className="truncate max-w-[200px] font-bold text-[#0F2A4A]">{post.dest_label || 'Destination'}</span>
           </div>
-          <span className="text-[11px] text-gray-500 font-medium">Pay offline</span>
+          <span className="text-[11px] text-emerald-800 font-bold bg-[#CAFFA6]/60 px-2 py-0.5 rounded-full">
+            Equal split • Pay offline / UPI
+          </span>
         </div>
 
         {/* Action Buttons: Chat & Complete */}

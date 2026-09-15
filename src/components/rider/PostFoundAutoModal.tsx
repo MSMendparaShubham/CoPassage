@@ -142,23 +142,32 @@ export const PostFoundAutoModal: React.FC<PostFoundAutoModalProps> = ({
 
           {/* Seats to share */}
           <div>
-            <label className="block text-xs font-bold uppercase tracking-wider text-gray-500 mb-1.5">
-              Seats Available to Share
-            </label>
-            <div className="grid grid-cols-3 gap-2">
-              {[1, 2, 3].map((num) => (
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="block text-xs font-bold uppercase tracking-wider text-gray-500">
+                Seats Available to Share
+              </label>
+              <span className="text-[10px] text-gray-400 font-medium">Max 3 riders total in auto</span>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              {[
+                { count: 1, label: '1 Seat (2 Riders Total • 50% Split)' },
+                { count: 2, label: '2 Seats (3 Riders Total • 33% Split)' },
+              ].map(({ count, label }) => (
                 <button
-                  key={num}
+                  key={count}
                   type="button"
-                  onClick={() => setSeats(num)}
-                  className={`h-11 rounded-xl border text-sm font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-                    seats === num
+                  onClick={() => setSeats(count)}
+                  className={`h-12 px-3 rounded-xl border text-xs font-bold flex flex-col items-center justify-center gap-0.5 transition-all cursor-pointer ${
+                    seats === count
                       ? 'bg-teal-waters text-spring-meadow border-teal-waters shadow-md'
                       : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100'
                   }`}
                 >
-                  <Users className="w-4 h-4" />
-                  <span>{num} {num === 1 ? 'seat' : 'seats'}</span>
+                  <div className="flex items-center gap-1.5">
+                    <Users className="w-3.5 h-3.5" />
+                    <span>{count} {count === 1 ? 'Seat' : 'Seats'} Open</span>
+                  </div>
+                  <span className="text-[10px] opacity-80">{count === 1 ? '½ split each' : '⅓ split each'}</span>
                 </button>
               ))}
             </div>

@@ -46,7 +46,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ user, onSignOut }) => 
   };
 
   return (
-    <div className="max-w-lg mx-auto p-4 sm:p-6 pb-28 space-y-5">
+    <div className="max-w-lg mx-auto p-4 sm:p-6 pb-40 sm:pb-44 space-y-5">
       <div>
         <h2 className="text-2xl font-extrabold text-teal-waters tracking-tight">Commuter Profile</h2>
         <p className="text-xs text-gray-500 mt-1">

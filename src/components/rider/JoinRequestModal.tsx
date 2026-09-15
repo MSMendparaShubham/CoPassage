@@ -31,6 +31,28 @@ export const JoinRequestModal: React.FC<JoinRequestModalProps> = ({
     setIsSubmitting(true);
     setError(null);
 
+    // If this is a demo post, simulate immediately without DB errors
+    if (post.id.startsWith('demo-')) {
+      setTimeout(() => {
+        const demoReq: JoinRequest = {
+          id: 'demo-req-' + Date.now(),
+          post_id: post.id,
+          requester_uid: user.uid,
+          requester_name: user.name,
+          requester_phone: user.phone,
+          requester_lat: null,
+          requester_lng: null,
+          rider_marked_complete: false,
+          status: 'pending',
+          created_at: new Date().toISOString(),
+        };
+        onRequestSent(demoReq);
+        setIsSubmitting(false);
+        onClose();
+      }, 500);
+      return;
+    }
+
     try {
       // NOTE: As per privacy spec and RLS Option A, requester_lat and requester_lng
       // MUST be NULL at insert. Location is only shared AFTER host acceptance!

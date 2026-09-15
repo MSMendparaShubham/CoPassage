@@ -34,31 +34,31 @@ export const ActivityView: React.FC<ActivityViewProps> = ({ user }) => {
   }, [user.uid]);
 
   return (
-    <div className="max-w-2xl mx-auto p-4 sm:p-6 pb-28 space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold text-teal-waters">Ride Activity & Split History</h2>
-        <p className="text-xs text-gray-500 mt-1">
+    <div className="max-w-2xl mx-auto p-4 sm:p-6 pb-40 sm:pb-44 space-y-6 animate-fade-in">
+      <div className="bg-white/90 backdrop-blur-md p-5 rounded-3xl border-2 border-[#0F2A4A]/10 shadow-sm">
+        <h2 className="text-2xl font-black text-[#0F2A4A] tracking-tight">Ride Activity & Split History</h2>
+        <p className="text-xs text-gray-600 mt-1 font-medium">
           Review your shared auto journeys and community fare savings.
         </p>
       </div>
 
       {/* Stats Summary Banner */}
       <div className="grid grid-cols-2 gap-4">
-        <div className="bg-gradient-to-br from-teal-waters to-[#193d4b] text-white p-4 rounded-2xl shadow-md">
-          <span className="text-xs text-glacial-sky block">Total Shared Trips</span>
-          <span className="text-2xl font-black font-mono mt-1 block">{rides.length}</span>
-          <span className="text-[10px] text-spring-meadow flex items-center gap-1 mt-1">
-            <Sparkles className="w-3 h-3" />
+        <div className="bg-gradient-to-br from-[#0F2A4A] to-[#1c456f] text-white p-5 rounded-3xl shadow-md border-2 border-[#0F2A4A]/20">
+          <span className="text-xs text-glacial-sky block font-bold">Total Shared Trips</span>
+          <span className="text-3xl font-black font-mono mt-1 block text-[#CAFFA6]">{rides.length}</span>
+          <span className="text-[10px] text-spring-meadow flex items-center gap-1 mt-1 font-bold">
+            <Sparkles className="w-3 h-3 text-[#CAFFA6]" />
             <span>Community rides</span>
           </span>
         </div>
 
-        <div className="bg-gradient-to-br from-[#f8f5dd] to-morning-mist text-teal-waters p-4 rounded-2xl border border-teal-waters/20 shadow-xs">
-          <span className="text-xs text-gray-600 block">Est. Fare Saved</span>
-          <span className="text-2xl font-black font-mono mt-1 block">
+        <div className="bg-white/95 backdrop-blur-md text-[#0F2A4A] p-5 rounded-3xl border-2 border-[#0F2A4A]/15 shadow-sm">
+          <span className="text-xs text-gray-500 block font-bold">Est. Fare Saved</span>
+          <span className="text-3xl font-black font-mono mt-1 block text-emerald-700">
             ₹{rides.reduce((acc, r) => acc + Math.round((r.total_fare || 0) * 0.5), 0)}
           </span>
-          <span className="text-[10px] text-emerald-700 font-semibold block mt-1">
+          <span className="text-[10px] text-emerald-700 font-bold block mt-1">
             vs solo auto booking
           </span>
         </div>
@@ -66,41 +66,41 @@ export const ActivityView: React.FC<ActivityViewProps> = ({ user }) => {
 
       {/* Ride List */}
       <div className="space-y-3">
-        <h3 className="text-xs font-bold uppercase tracking-wider text-gray-400">Past Rides</h3>
+        <h3 className="text-xs font-black uppercase tracking-wider text-[#0F2A4A] px-1">Past Rides</h3>
 
         {loading ? (
-          <div className="py-12 text-center text-gray-400 text-sm">Loading activity...</div>
+          <div className="py-12 text-center text-gray-500 text-sm font-bold bg-white/80 backdrop-blur-md rounded-3xl border border-[#0F2A4A]/10">Loading activity...</div>
         ) : rides.length === 0 ? (
-          <div className="py-12 text-center bg-white rounded-2xl border border-dashed border-gray-300 p-8">
-            <Clock className="w-10 h-10 mx-auto text-gray-300 mb-2" />
-            <p className="text-sm font-semibold text-gray-700">No rides yet</p>
-            <p className="text-xs text-gray-400 mt-1">
-              When you broadcast or join a shared auto, your ride history will appear here.
+          <div className="py-12 text-center bg-white/95 backdrop-blur-md rounded-3xl border-2 border-dashed border-[#0F2A4A]/20 p-8 space-y-2">
+            <Clock className="w-10 h-10 mx-auto text-[#0F2A4A]/40 mb-2" />
+            <p className="text-sm font-black text-[#0F2A4A]">No shared rides yet</p>
+            <p className="text-xs text-gray-500 max-w-xs mx-auto">
+              When you broadcast or join a shared auto, your ride history and split savings will appear here.
             </p>
           </div>
         ) : (
           rides.map((ride) => (
             <div
               key={ride.id}
-              className="p-4 bg-white rounded-2xl shadow-xs border border-gray-100 hover:border-teal-waters/30 transition-all flex items-center justify-between"
+              className="p-5 bg-white/95 backdrop-blur-md rounded-3xl shadow-sm border-2 border-[#0F2A4A]/10 hover:border-[#0F2A4A]/30 transition-all flex items-center justify-between"
             >
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
-                  <MapPin className="w-4 h-4 text-teal-waters shrink-0" />
-                  <span className="font-bold text-sm text-gray-900">{ride.dest_label || 'Destination'}</span>
+                  <MapPin className="w-4 h-4 text-[#4A9FE0] shrink-0" />
+                  <span className="font-extrabold text-sm text-[#0F2A4A]">{ride.dest_label || 'Destination'}</span>
                 </div>
-                <div className="flex items-center gap-3 text-xs text-gray-500">
+                <div className="flex items-center gap-3 text-xs text-gray-500 font-medium">
                   <span>{new Date(ride.created_at).toLocaleDateString()}</span>
                   <span>•</span>
-                  <span className="capitalize">{ride.status}</span>
+                  <span className="capitalize text-emerald-700 font-bold">{ride.status}</span>
                   <span>•</span>
                   <span>{ride.max_riders || 2} seats</span>
                 </div>
               </div>
 
               <div className="text-right">
-                <span className="text-base font-extrabold text-teal-waters font-mono">₹{ride.total_fare || 0}</span>
-                <span className="text-[10px] text-gray-400 block">total meter</span>
+                <span className="text-lg font-black text-[#0F2A4A] font-mono">₹{ride.total_fare || 0}</span>
+                <span className="text-[10px] text-gray-500 block font-mono">total meter</span>
               </div>
             </div>
           ))

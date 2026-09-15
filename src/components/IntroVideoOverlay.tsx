@@ -62,15 +62,15 @@ export const IntroVideoOverlay: React.FC<IntroVideoOverlayProps> = ({
         className="w-full h-full object-cover bg-black"
       />
 
-      {/* ================= RIGHT BELOW CORNER SKIP BUTTON ================= */}
-      <div className="fixed bottom-6 right-6 sm:bottom-8 sm:right-8 z-50">
+      {/* ================= RIGHT BELOW CORNER SKIP BUTTON (Covers underlying star fully) ================= */}
+      <div className="fixed bottom-9 right-6 sm:bottom-12 sm:right-8 z-50">
         <button
           id="skip-intro-button"
           onClick={handleFinish}
-          className="group relative flex items-center gap-2.5 bg-[#CAFFA6] hover:bg-[#b8f78f] text-[#0F2A4A] px-6 sm:px-7 py-3.5 sm:py-4 rounded-full font-black text-sm sm:text-base border-3 border-[#0F2A4A] shadow-[0_6px_0_#0F2A4A] hover:shadow-[0_2px_0_#0F2A4A] hover:translate-y-1 active:translate-y-1.5 transition-all duration-150 cursor-pointer"
+          className="group relative flex items-center justify-center gap-2.5 bg-[#CAFFA6] hover:bg-[#b8f78f] text-[#0F2A4A] px-7 sm:px-8 py-4 sm:py-4.5 rounded-full font-black text-sm sm:text-base border-3 border-[#0F2A4A] shadow-[0_6px_0_#0F2A4A] hover:shadow-[0_2px_0_#0F2A4A] hover:translate-y-1 active:translate-y-1.5 transition-all duration-150 cursor-pointer min-w-[150px] sm:min-w-[170px]"
         >
-          <span className="tracking-wide">SKIP</span>
-          <div className="w-6 h-6 rounded-full bg-[#0F2A4A] text-[#CAFFA6] flex items-center justify-center group-hover:translate-x-0.5 transition-transform">
+          <span className="tracking-wider text-base">SKIP</span>
+          <div className="w-6 h-6 rounded-full bg-[#0F2A4A] text-[#CAFFA6] flex items-center justify-center group-hover:translate-x-0.5 transition-transform shrink-0">
             <SkipForward className="w-3.5 h-3.5 fill-current" />
           </div>
           <span className="hidden md:inline-block text-[10px] font-extrabold text-[#0F2A4A]/70 uppercase ml-1 bg-[#0F2A4A]/10 px-2 py-0.5 rounded-full">
