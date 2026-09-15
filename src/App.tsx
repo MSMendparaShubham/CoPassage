@@ -18,7 +18,9 @@ import {
   Award,
   Play,
   User,
-  LogOut
+  LogOut,
+  Briefcase,
+  ExternalLink
 } from 'lucide-react';
 
 export default function App() {
@@ -143,6 +145,16 @@ export default function App() {
             </a>
             <a href="#faq" className="hover:text-[#0F2A4A] transition-colors">
               FAQ
+            </a>
+            <a
+              href="https://docs.google.com/forms/d/e/1FAIpQLSfSQAF_tL5c5lXM7jVG2VBDC27VMEVuQHMTQ8OAs7pycn1vFw/viewform"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hover:bg-[#CAFFA6] transition-all flex items-center gap-1.5 bg-[#CAFFA6]/60 text-[#0F2A4A] px-3 py-1 rounded-full border border-[#0F2A4A]/25 shadow-xs font-black text-[11px]"
+            >
+              <span className="w-2 h-2 rounded-full bg-emerald-600 animate-pulse"></span>
+              <span>We&apos;re Hiring!</span>
+              <ExternalLink className="w-3 h-3 text-[#0F2A4A]" />
             </a>
           </div>
 
@@ -518,6 +530,53 @@ export default function App() {
           </div>
         </section>
 
+        {/* ================= WE ARE HIRING SECTION ================= */}
+        <section id="careers" className="w-full py-16 px-4 sm:px-6 max-w-5xl mx-auto">
+          <div className="bg-gradient-to-br from-[#0F2A4A] via-[#163a63] to-[#204654] rounded-3xl p-8 sm:p-12 border-3 border-[#0F2A4A] shadow-[0_8px_0_#0F2A4A] text-white relative overflow-hidden">
+            {/* Background Glow Accents */}
+            <div className="absolute top-0 right-0 w-80 h-80 bg-[#CAFFA6]/10 rounded-full blur-3xl pointer-events-none -mr-20 -mt-20"></div>
+            <div className="absolute bottom-0 left-0 w-80 h-80 bg-[#4A9FE0]/15 rounded-full blur-3xl pointer-events-none -ml-20 -mb-20"></div>
+
+            <div className="relative z-10 flex flex-col md:flex-row items-center justify-between gap-8">
+              <div className="max-w-xl flex flex-col gap-4 text-center md:text-left">
+                <div className="inline-flex items-center gap-2 bg-[#CAFFA6] text-[#0F2A4A] text-xs font-black px-3.5 py-1.5 rounded-full border-2 border-[#0F2A4A] shadow-xs w-fit mx-auto md:mx-0">
+                  <Briefcase className="w-3.5 h-3.5" />
+                  <span className="uppercase tracking-wide">Join Our Mission • We Are Hiring</span>
+                </div>
+
+                <h2 className="text-2xl sm:text-4xl font-black tracking-tight leading-tight">
+                  Build the Future of <br className="hidden sm:inline" />
+                  <span className="text-[#CAFFA6]">Shared Urban Commuting</span>
+                </h2>
+
+                <p className="text-xs sm:text-sm text-gray-200 leading-relaxed font-medium">
+                  We are looking for ambitious builders, operators, and problem-solvers to revolutionize last-mile auto sharing in India. Explore open roles across tech, operations, and growth.
+                </p>
+
+                <div className="flex flex-wrap items-center justify-center md:justify-start gap-2 pt-1 text-[11px] font-bold text-[#A9E0F1]">
+                  <span className="bg-white/10 px-3 py-1 rounded-lg border border-white/10">🚀 Engineering & Tech</span>
+                  <span className="bg-white/10 px-3 py-1 rounded-lg border border-white/10">📍 City Operations</span>
+                  <span className="bg-white/10 px-3 py-1 rounded-lg border border-white/10">📈 Growth & Marketing</span>
+                  <span className="bg-white/10 px-3 py-1 rounded-lg border border-white/10">🤝 Driver Relations</span>
+                </div>
+              </div>
+
+              <div className="flex flex-col items-center gap-3 shrink-0">
+                <a
+                  href="https://docs.google.com/forms/d/e/1FAIpQLSfSQAF_tL5c5lXM7jVG2VBDC27VMEVuQHMTQ8OAs7pycn1vFw/viewform"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="bg-[#CAFFA6] hover:bg-[#b8f58c] text-[#0F2A4A] text-sm sm:text-base font-black px-8 py-4 rounded-2xl border-2 border-[#0F2A4A] shadow-[0_4px_0_#0F2A4A] active:translate-y-1 hover:shadow-[0_2px_0_#0F2A4A] transition-all flex items-center gap-3 cursor-pointer group"
+                >
+                  <span>Apply via Google Form</span>
+                  <ExternalLink className="w-4 h-4 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
+                </a>
+                <span className="text-[11px] text-gray-300 font-medium">Takes only 2 minutes to fill</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
         {/* ================= FAQ SECTION ================= */}
         <section id="faq" className="w-full py-16 px-4 sm:px-6 max-w-4xl mx-auto">
           <div className="text-center max-w-2xl mx-auto mb-10">
@@ -648,11 +707,17 @@ export default function App() {
                   </a>
                 </li>
                 <li>
-                  <a href="#careers" className="hover:text-white transition-colors flex items-center gap-1.5">
+                  <a
+                    href="https://docs.google.com/forms/d/e/1FAIpQLSfSQAF_tL5c5lXM7jVG2VBDC27VMEVuQHMTQ8OAs7pycn1vFw/viewform"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="hover:text-white transition-colors flex items-center gap-1.5"
+                  >
                     <span>Careers</span>
                     <span className="text-[9px] bg-[#4A9FE0] text-white px-1.5 py-0.2 rounded-full font-black">
                       We&apos;re Hiring
                     </span>
+                    <ExternalLink className="w-3 h-3 text-[#A9E0F1]" />
                   </a>
                 </li>
                 <li>
