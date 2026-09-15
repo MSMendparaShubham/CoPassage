@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   X,
   Smartphone,
@@ -12,8 +12,15 @@ import {
   PhoneCall,
   KeyRound,
   Building2,
-  GraduationCap
+  GraduationCap,
+  AlertCircle
 } from 'lucide-react';
+import { auth } from '../firebase';
+import {
+  RecaptchaVerifier,
+  signInWithPhoneNumber,
+  ConfirmationResult
+} from 'firebase/auth';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -29,31 +36,98 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   onSuccess,
 }) => {
   const [mode, setMode] = useState<'signin' | 'signup'>(initialMode);
-  const [authMethod, setAuthMethod] = useState<'phone' | 'email'>('phone');
   const [userRole, setUserRole] = useState<'commuter' | 'driver'>('commuter');
 
   // Form State
   const [phone, setPhone] = useState('');
-  const [email, setEmail] = useState('');
   const [name, setName] = useState('');
   const [org, setOrg] = useState('');
   const [otpSent, setOtpSent] = useState(false);
-  const [otp, setOtp] = useState(['', '', '', '']);
+  const [otp, setOtp] = useState(['', '', '', '', '', '']); // Supports 6 digits for standard Firebase OTP
   const [isLoading, setIsLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
+  const confirmationResultRef = useRef<ConfirmationResult | null>(null);
+  const recaptchaVerifierRef = useRef<RecaptchaVerifier | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (recaptchaVerifierRef.current) {
+        try {
+          recaptchaVerifierRef.current.clear();
+        } catch {
+          // ignore
+        }
+      }
+    };
+  }, []);
 
   if (!isOpen) return null;
 
-  const handleSendOtp = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!phone && authMethod === 'phone') return;
-    if (!email && authMethod === 'email') return;
+  // Initialize invisible reCAPTCHA for Firebase Phone Auth
+  const setupRecaptcha = () => {
+    if (recaptchaVerifierRef.current) {
+      try {
+        recaptchaVerifierRef.current.clear();
+      } catch {
+        // ignore
+      }
+    }
 
+    try {
+      recaptchaVerifierRef.current = new RecaptchaVerifier(auth, 'recaptcha-container', {
+        size: 'invisible',
+        callback: () => {
+          // reCAPTCHA solved
+        },
+        'expired-callback': () => {
+          setErrorMessage('reCAPTCHA expired. Please try sending OTP again.');
+        },
+      });
+    } catch (err: any) {
+      console.warn('reCAPTCHA setup notice:', err?.message);
+    }
+  };
+
+  const handleSendOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (phone.length !== 10) {
+      setErrorMessage('Please enter a valid 10-digit mobile number');
+      return;
+    }
+
+    setErrorMessage(null);
     setIsLoading(true);
-    setTimeout(() => {
-      setIsLoading(false);
-      setOtpSent(true);
-    }, 600);
+
+    const hasFirebaseKey = Boolean(import.meta.env.VITE_FIREBASE_API_KEY);
+
+    if (hasFirebaseKey) {
+      try {
+        setupRecaptcha();
+        const formattedPhone = `+91${phone}`;
+        const confirmation = await signInWithPhoneNumber(
+          auth,
+          formattedPhone,
+          recaptchaVerifierRef.current as RecaptchaVerifier
+        );
+        confirmationResultRef.current = confirmation;
+        setIsLoading(false);
+        setOtpSent(true);
+      } catch (err: any) {
+        console.error('Firebase Phone Auth Error:', err);
+        setIsLoading(false);
+        setErrorMessage(
+          err?.message || 'Failed to send OTP. Please check your Firebase settings or phone number.'
+        );
+      }
+    } else {
+      // Demo simulation fallback when Firebase keys are pending
+      setTimeout(() => {
+        setIsLoading(false);
+        setOtpSent(true);
+      }, 600);
+    }
   };
 
   const handleOtpChange = (index: number, val: string) => {
@@ -63,37 +137,73 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     setOtp(newOtp);
 
     // Auto-focus next input
-    if (val && index < 3) {
+    if (val && index < 5) {
       const nextInput = document.getElementById(`otp-${index + 1}`);
       nextInput?.focus();
     }
   };
 
-  const handleVerifyAndSubmit = (e: React.FormEvent) => {
+  const handleVerifyAndSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const code = otp.join('').trim();
+    if (!code) return;
+
     setIsLoading(true);
+    setErrorMessage(null);
 
-    setTimeout(() => {
-      setIsLoading(false);
-      setSuccessMessage(
-        mode === 'signup'
-          ? `Welcome to CoPassage, ${name || 'Commuter'}! Account created with ₹50 credit.`
-          : 'Logged in successfully! Redirecting to live corridor matching...'
-      );
+    const hasFirebaseKey = Boolean(import.meta.env.VITE_FIREBASE_API_KEY);
 
+    if (hasFirebaseKey && confirmationResultRef.current) {
+      try {
+        const result = await confirmationResultRef.current.confirm(code);
+        setIsLoading(false);
+        setSuccessMessage(
+          mode === 'signup'
+            ? `Welcome to CoPassage, ${name || 'Commuter'}! Account created with ₹50 credit.`
+            : 'Logged in successfully! Redirecting to live corridor matching...'
+        );
+
+        setTimeout(() => {
+          if (onSuccess) {
+            onSuccess({
+              name: name || result.user.displayName || 'CoPassage Commuter',
+              phone: phone || result.user.phoneNumber || '+91 98765 43210',
+              role: userRole,
+            });
+          }
+          onClose();
+          setSuccessMessage(null);
+          setOtpSent(false);
+        }, 1200);
+      } catch (err: any) {
+        console.error('OTP Verification Error:', err);
+        setIsLoading(false);
+        setErrorMessage('Invalid OTP entered. Please check the code received on your phone.');
+      }
+    } else {
+      // Demo verification fallback
       setTimeout(() => {
-        if (onSuccess) {
-          onSuccess({
-            name: name || 'Rohan Sharma',
-            phone: phone || '+91 98765 43210',
-            role: userRole,
-          });
-        }
-        onClose();
-        setSuccessMessage(null);
-        setOtpSent(false);
-      }, 1200);
-    }, 800);
+        setIsLoading(false);
+        setSuccessMessage(
+          mode === 'signup'
+            ? `Welcome to CoPassage, ${name || 'Commuter'}! Account created with ₹50 credit.`
+            : 'Logged in successfully! Redirecting to live corridor matching...'
+        );
+
+        setTimeout(() => {
+          if (onSuccess) {
+            onSuccess({
+              name: name || 'Rohan Sharma',
+              phone: phone || '+91 98765 43210',
+              role: userRole,
+            });
+          }
+          onClose();
+          setSuccessMessage(null);
+          setOtpSent(false);
+        }, 1200);
+      }, 700);
+    }
   };
 
   return (
@@ -102,6 +212,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       role="dialog"
       aria-modal="true"
     >
+      {/* Invisible reCAPTCHA container for Firebase */}
+      <div id="recaptcha-container"></div>
+
       <div className="relative w-full max-w-md bg-[#F7F9E1] border-4 border-[#0F2A4A] rounded-3xl p-6 sm:p-8 shadow-[0_16px_0_#0F2A4A] text-[#204654] my-auto">
         {/* Close Button */}
         <button
@@ -136,6 +249,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             onClick={() => {
               setMode('signin');
               setOtpSent(false);
+              setErrorMessage(null);
             }}
             className={`py-2 rounded-xl text-xs font-black transition-all cursor-pointer ${
               mode === 'signin'
@@ -149,6 +263,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             onClick={() => {
               setMode('signup');
               setOtpSent(false);
+              setErrorMessage(null);
             }}
             className={`py-2 rounded-xl text-xs font-black transition-all cursor-pointer ${
               mode === 'signup'
@@ -168,7 +283,15 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           </div>
         )}
 
-        {/* ================= STEP 1: INITIAL PHONE / EMAIL INPUT ================= */}
+        {/* Error Alert */}
+        {errorMessage && (
+          <div className="mb-4 bg-rose-50 border-2 border-rose-500 rounded-2xl p-3.5 flex items-start gap-2.5 text-xs font-bold text-rose-700">
+            <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+            <span>{errorMessage}</span>
+          </div>
+        )}
+
+        {/* ================= STEP 1: INITIAL PHONE / REGISTRATION ================= */}
         {!otpSent && (
           <form onSubmit={handleSendOtp} className="flex flex-col gap-4">
             {mode === 'signup' && (
@@ -278,10 +401,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               }`}
             >
               {isLoading ? (
-                <span>Sending OTP...</span>
+                <span>Sending SMS OTP...</span>
               ) : (
                 <>
-                  <span>Get 4-Digit OTP</span>
+                  <span>Send OTP to Phone</span>
                   <ArrowRight className="w-4 h-4" />
                 </>
               )}
@@ -300,27 +423,30 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           <form onSubmit={handleVerifyAndSubmit} className="flex flex-col gap-4">
             <div className="bg-white border-2 border-[#0F2A4A] rounded-2xl p-4 text-center shadow-xs">
               <span className="text-xs text-gray-500 font-bold block">
-                Enter OTP sent to
+                Enter OTP code sent via SMS to
               </span>
               <span className="text-sm font-black text-[#0F2A4A]">
-                +91 {phone || '98765 43210'}
+                +91 {phone}
               </span>
               <button
                 type="button"
-                onClick={() => setOtpSent(false)}
-                className="text-[11px] font-bold text-[#4A9FE0] hover:underline block mx-auto mt-1"
+                onClick={() => {
+                  setOtpSent(false);
+                  setErrorMessage(null);
+                }}
+                className="text-[11px] font-bold text-[#4A9FE0] hover:underline block mx-auto mt-1 cursor-pointer"
               >
                 Change Number
               </button>
             </div>
 
-            {/* 4 Digit OTP Inputs */}
+            {/* 6-Digit OTP Inputs */}
             <div>
               <label className="block text-[11px] font-black uppercase text-center text-[#0F2A4A] mb-2">
-                Enter 4-Digit Code
+                Enter 6-Digit Code
               </label>
-              <div className="flex justify-center gap-3">
-                {[0, 1, 2, 3].map((idx) => (
+              <div className="flex justify-center gap-2 sm:gap-2.5">
+                {[0, 1, 2, 3, 4, 5].map((idx) => (
                   <input
                     key={idx}
                     id={`otp-${idx}`}
@@ -328,7 +454,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     maxLength={1}
                     value={otp[idx]}
                     onChange={(e) => handleOtpChange(idx, e.target.value)}
-                    className="w-12 h-12 text-center text-xl font-black bg-white border-2 border-[#0F2A4A] rounded-xl text-[#0F2A4A] focus:outline-none focus:ring-2 focus:ring-[#CAFFA6] shadow-xs"
+                    className="w-10 h-11 sm:w-11 sm:h-12 text-center text-lg font-black bg-white border-2 border-[#0F2A4A] rounded-xl text-[#0F2A4A] focus:outline-none focus:ring-2 focus:ring-[#CAFFA6] shadow-xs"
                   />
                 ))}
               </div>
@@ -336,14 +462,18 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
             <button
               type="submit"
-              disabled={isLoading}
-              className="w-full py-3.5 bg-[#CAFFA6] hover:bg-[#b8f78f] text-[#0F2A4A] font-black text-sm rounded-2xl border-3 border-[#0F2A4A] shadow-[0_4px_0_#0F2A4A] hover:translate-y-0.5 active:translate-y-1 transition-all flex items-center justify-center gap-2 cursor-pointer mt-2"
+              disabled={isLoading || otp.join('').length < 6}
+              className={`w-full py-3.5 rounded-2xl border-3 border-[#0F2A4A] font-black text-sm transition-all flex items-center justify-center gap-2 cursor-pointer mt-2 ${
+                otp.join('').length === 6
+                  ? 'bg-[#CAFFA6] hover:bg-[#b8f78f] text-[#0F2A4A] shadow-[0_4px_0_#0F2A4A] hover:translate-y-0.5 active:translate-y-1'
+                  : 'bg-gray-200 text-gray-500 border-gray-400 cursor-not-allowed opacity-70'
+              }`}
             >
               {isLoading ? (
-                <span>Verifying...</span>
+                <span>Verifying with Firebase...</span>
               ) : (
                 <>
-                  <span>Verify & {mode === 'signup' ? 'Complete Sign Up' : 'Sign In'}</span>
+                  <span>Verify Code & {mode === 'signup' ? 'Complete Sign Up' : 'Sign In'}</span>
                   <CheckCircle2 className="w-4 h-4 text-[#0F2A4A]" />
                 </>
               )}
@@ -352,12 +482,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             <div className="text-center">
               <button
                 type="button"
-                onClick={() => {
-                  setOtp(['', '', '', '']);
-                }}
+                onClick={handleSendOtp}
                 className="text-xs font-extrabold text-[#204654] hover:text-[#0F2A4A] underline cursor-pointer"
               >
-                Resend OTP in 30s
+                Resend OTP
               </button>
             </div>
           </form>
