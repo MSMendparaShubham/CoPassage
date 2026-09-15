@@ -56,27 +56,49 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
   const confirmationResultRef = useRef<ConfirmationResult | null>(null);
 
+  // Cleanup recaptcha containers on unmount
+  useEffect(() => {
+    return () => {
+      if (window.recaptchaVerifier) {
+        try {
+          window.recaptchaVerifier.clear();
+        } catch {
+          // ignore
+        }
+        window.recaptchaVerifier = undefined;
+      }
+      const existing = document.querySelectorAll('[id^="firebase-recaptcha-"]');
+      existing.forEach((el) => el.remove());
+    };
+  }, []);
+
   if (!isOpen) return null;
 
-  // Safely get or create invisible reCAPTCHA verifier for Firebase Phone Auth
-  const getOrCreateRecaptcha = () => {
+  // Create a brand new unique container and verifier to prevent collision
+  const createFreshRecaptcha = (): RecaptchaVerifier => {
     if (window.recaptchaVerifier) {
-      return window.recaptchaVerifier;
+      try {
+        window.recaptchaVerifier.clear();
+      } catch {
+        // ignore
+      }
+      window.recaptchaVerifier = undefined;
     }
 
-    let container = document.getElementById('recaptcha-container');
-    if (!container) {
-      container = document.createElement('div');
-      container.id = 'recaptcha-container';
-      document.body.appendChild(container);
-    } else {
-      container.innerHTML = '';
-    }
+    // Remove any previous recaptcha containers
+    const existing = document.querySelectorAll('[id^="firebase-recaptcha-"]');
+    existing.forEach((el) => el.remove());
 
-    const verifier = new RecaptchaVerifier(auth, 'recaptcha-container', {
+    // Create a fresh DOM element with a unique timestamp ID
+    const uniqueId = `firebase-recaptcha-${Date.now()}`;
+    const container = document.createElement('div');
+    container.id = uniqueId;
+    document.body.appendChild(container);
+
+    const verifier = new RecaptchaVerifier(auth, uniqueId, {
       size: 'invisible',
       callback: () => {
-        // reCAPTCHA solved
+        // reCAPTCHA resolved
       },
       'expired-callback': () => {
         setErrorMessage('reCAPTCHA expired. Please try sending OTP again.');
@@ -101,7 +123,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
     if (hasFirebaseKey) {
       try {
-        const verifier = getOrCreateRecaptcha();
+        const verifier = createFreshRecaptcha();
         const formattedPhone = `+91${phone}`;
         const confirmation = await signInWithPhoneNumber(
           auth,
@@ -115,7 +137,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         console.error('Firebase Phone Auth Error:', err);
         setIsLoading(false);
 
-        // Reset verifier on error so subsequent attempts don't collide
+        // Reset verifier on error
         if (window.recaptchaVerifier) {
           try {
             window.recaptchaVerifier.clear();
@@ -124,17 +146,15 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           }
           window.recaptchaVerifier = undefined;
         }
-        const container = document.getElementById('recaptcha-container');
-        if (container) {
-          container.innerHTML = '';
-        }
+        const existing = document.querySelectorAll('[id^="firebase-recaptcha-"]');
+        existing.forEach((el) => el.remove());
 
         let userFriendlyError = err?.message || 'Failed to send OTP.';
         if (err?.code === 'auth/operation-not-allowed') {
           userFriendlyError =
-            'Phone auth or SMS region not enabled. Please enable Phone provider & India (+91) in Firebase Console under Authentication > Settings > SMS region policy.';
+            'SMS Region not enabled. In Firebase Console: Go to Authentication > Settings > SMS region policy > Enable India (+91).';
         } else if (err?.code === 'auth/too-many-requests') {
-          userFriendlyError = 'Too many requests. Please wait a moment or use a test phone number.';
+          userFriendlyError = 'Too many requests. Please wait a moment before trying again.';
         } else if (err?.code === 'auth/invalid-phone-number') {
           userFriendlyError = 'Invalid phone number format.';
         }
@@ -232,9 +252,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       role="dialog"
       aria-modal="true"
     >
-      {/* Invisible reCAPTCHA container for Firebase */}
-      <div id="recaptcha-container"></div>
-
       <div className="relative w-full max-w-md bg-[#F7F9E1] border-4 border-[#0F2A4A] rounded-3xl p-6 sm:p-8 shadow-[0_16px_0_#0F2A4A] text-[#204654] my-auto">
         {/* Close Button */}
         <button
