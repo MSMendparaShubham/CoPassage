@@ -1,18 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   X,
-  Smartphone,
-  Mail,
-  Lock,
   User,
   ArrowRight,
   ShieldCheck,
-  Sparkles,
   CheckCircle2,
-  PhoneCall,
-  KeyRound,
   Building2,
-  GraduationCap,
   AlertCircle
 } from 'lucide-react';
 import { auth } from '../firebase';
@@ -49,12 +42,46 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [name, setName] = useState('');
   const [org, setOrg] = useState('');
   const [otpSent, setOtpSent] = useState(false);
-  const [otp, setOtp] = useState(['', '', '', '', '', '']); // Supports 6 digits for standard Firebase OTP
+  const [otp, setOtp] = useState(['', '', '', '', '', '']); // 6-digit OTP
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   const confirmationResultRef = useRef<ConfirmationResult | null>(null);
+
+  // Sync mode and completely clear OTP / error states when modal opens or initialMode changes
+  useEffect(() => {
+    if (isOpen) {
+      setMode(initialMode);
+      setOtp(['', '', '', '', '', '']);
+      setOtpSent(false);
+      setErrorMessage(null);
+      setSuccessMessage(null);
+      setIsLoading(false);
+    }
+  }, [isOpen, initialMode]);
+
+  // Handle ESC key to close modal
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isOpen) {
+        handleClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen]);
+
+  // Auto-focus first OTP input when OTP screen opens
+  useEffect(() => {
+    if (isOpen && otpSent) {
+      const timer = setTimeout(() => {
+        const firstInput = document.getElementById('otp-0');
+        firstInput?.focus();
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [isOpen, otpSent]);
 
   // Cleanup recaptcha containers on unmount
   useEffect(() => {
@@ -72,7 +99,21 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     };
   }, []);
 
-  if (!isOpen) return null;
+  const handleClose = () => {
+    setOtp(['', '', '', '', '', '']);
+    setOtpSent(false);
+    setErrorMessage(null);
+    setSuccessMessage(null);
+    onClose();
+  };
+
+  const switchMode = (newMode: 'signin' | 'signup') => {
+    setMode(newMode);
+    setOtp(['', '', '', '', '', '']);
+    setOtpSent(false);
+    setErrorMessage(null);
+    setSuccessMessage(null);
+  };
 
   // Create a brand new unique container and verifier to prevent collision
   const createFreshRecaptcha = (): RecaptchaVerifier => {
@@ -116,6 +157,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       return;
     }
 
+    // Always clear previously entered OTP when generating a new OTP
+    setOtp(['', '', '', '', '', '']);
     setErrorMessage(null);
     setIsLoading(true);
 
@@ -171,22 +214,93 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   };
 
   const handleOtpChange = (index: number, val: string) => {
-    if (val.length > 1) val = val[0];
+    const digits = val.replace(/\D/g, '');
+
+    if (!digits) {
+      const newOtp = [...otp];
+      newOtp[index] = '';
+      setOtp(newOtp);
+      return;
+    }
+
+    // Handle multi-digit paste or SMS autofill across boxes
+    if (digits.length > 2 || (digits.length > 1 && !otp[index])) {
+      const newOtp = [...otp];
+      for (let i = 0; i < digits.length && index + i < 6; i++) {
+        newOtp[index + i] = digits[i];
+      }
+      setOtp(newOtp);
+      const nextIdx = Math.min(index + digits.length, 5);
+      document.getElementById(`otp-${nextIdx}`)?.focus();
+      return;
+    }
+
+    // Single digit entry or replacing current box with newly typed key
+    const char = digits.slice(-1);
     const newOtp = [...otp];
-    newOtp[index] = val;
+    newOtp[index] = char;
     setOtp(newOtp);
 
-    // Auto-focus next input
-    if (val && index < 5) {
+    // Auto-advance to next box if character was entered
+    if (char && index < 5) {
       const nextInput = document.getElementById(`otp-${index + 1}`);
       nextInput?.focus();
     }
   };
 
+  const handleOtpKeyDown = (index: number, e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Backspace') {
+      e.preventDefault();
+      const newOtp = [...otp];
+
+      if (otp[index]) {
+        // If current box has a value, remove it and remain on this box
+        newOtp[index] = '';
+        setOtp(newOtp);
+      } else if (index > 0) {
+        // If current box is empty, jump to previous box, remove its value, and focus it
+        newOtp[index - 1] = '';
+        setOtp(newOtp);
+        const prevInput = document.getElementById(`otp-${index - 1}`);
+        prevInput?.focus();
+      }
+    } else if (e.key === 'Delete') {
+      e.preventDefault();
+      const newOtp = [...otp];
+      newOtp[index] = '';
+      setOtp(newOtp);
+    } else if (e.key === 'ArrowLeft' && index > 0) {
+      e.preventDefault();
+      const prevInput = document.getElementById(`otp-${index - 1}`);
+      prevInput?.focus();
+    } else if (e.key === 'ArrowRight' && index < 5) {
+      e.preventDefault();
+      const nextInput = document.getElementById(`otp-${index + 1}`);
+      nextInput?.focus();
+    }
+  };
+
+  const handleOtpPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    e.preventDefault();
+    const pasted = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
+    if (!pasted) return;
+
+    const newOtp = ['', '', '', '', '', ''];
+    for (let i = 0; i < pasted.length; i++) {
+      newOtp[i] = pasted[i];
+    }
+    setOtp(newOtp);
+
+    // Focus appropriate box after paste
+    const nextIdx = Math.min(pasted.length, 5);
+    const targetInput = document.getElementById(`otp-${nextIdx}`);
+    targetInput?.focus();
+  };
+
   const handleVerifyAndSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const code = otp.join('').trim();
-    if (!code) return;
+    if (!code || code.length < 6) return;
 
     setIsLoading(true);
     setErrorMessage(null);
@@ -211,9 +325,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               role: userRole,
             });
           }
-          onClose();
-          setSuccessMessage(null);
-          setOtpSent(false);
+          handleClose();
         }, 1200);
       } catch (err: any) {
         console.error('OTP Verification Error:', err);
@@ -238,24 +350,31 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               role: userRole,
             });
           }
-          onClose();
-          setSuccessMessage(null);
-          setOtpSent(false);
+          handleClose();
         }, 1200);
       }, 700);
     }
   };
+
+  // Safe early return placed after all hooks
+  if (!isOpen) return null;
 
   return (
     <div
       className="fixed inset-0 z-[9999] bg-[#0F2A4A]/80 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto"
       role="dialog"
       aria-modal="true"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) {
+          handleClose();
+        }
+      }}
     >
       <div className="relative w-full max-w-md bg-[#F7F9E1] border-4 border-[#0F2A4A] rounded-3xl p-6 sm:p-8 shadow-[0_16px_0_#0F2A4A] text-[#204654] my-auto">
         {/* Close Button */}
         <button
-          onClick={onClose}
+          type="button"
+          onClick={handleClose}
           className="absolute top-5 right-5 w-9 h-9 rounded-full bg-white border-2 border-[#0F2A4A] flex items-center justify-center hover:bg-gray-100 transition-transform active:scale-90 cursor-pointer shadow-xs"
           aria-label="Close modal"
         >
@@ -283,11 +402,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         {/* Mode Switcher Tabs (Sign In vs Sign Up) */}
         <div className="grid grid-cols-2 gap-2 bg-white/80 p-1.5 rounded-2xl border-2 border-[#0F2A4A] mb-6">
           <button
-            onClick={() => {
-              setMode('signin');
-              setOtpSent(false);
-              setErrorMessage(null);
-            }}
+            type="button"
+            onClick={() => switchMode('signin')}
             className={`py-2 rounded-xl text-xs font-black transition-all cursor-pointer ${
               mode === 'signin'
                 ? 'bg-[#0F2A4A] text-[#CAFFA6] shadow-xs'
@@ -297,11 +413,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             Sign In
           </button>
           <button
-            onClick={() => {
-              setMode('signup');
-              setOtpSent(false);
-              setErrorMessage(null);
-            }}
+            type="button"
+            onClick={() => switchMode('signup')}
             className={`py-2 rounded-xl text-xs font-black transition-all cursor-pointer ${
               mode === 'signup'
                 ? 'bg-[#0F2A4A] text-[#CAFFA6] shadow-xs'
@@ -470,6 +583,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 onClick={() => {
                   setOtpSent(false);
                   setErrorMessage(null);
+                  setOtp(['', '', '', '', '', '']);
                 }}
                 className="text-[11px] font-bold text-[#4A9FE0] hover:underline block mx-auto mt-1 cursor-pointer"
               >
@@ -488,9 +602,15 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     key={idx}
                     id={`otp-${idx}`}
                     type="text"
-                    maxLength={1}
+                    inputMode="numeric"
+                    autoComplete={idx === 0 ? 'one-time-code' : 'off'}
+                    maxLength={2}
                     value={otp[idx]}
                     onChange={(e) => handleOtpChange(idx, e.target.value)}
+                    onKeyDown={(e) => handleOtpKeyDown(idx, e)}
+                    onFocus={(e) => e.target.select()}
+                    onClick={(e) => (e.target as HTMLInputElement).select()}
+                    onPaste={handleOtpPaste}
                     className="w-10 h-11 sm:w-11 sm:h-12 text-center text-lg font-black bg-white border-2 border-[#0F2A4A] rounded-xl text-[#0F2A4A] focus:outline-none focus:ring-2 focus:ring-[#CAFFA6] shadow-xs"
                   />
                 ))}
@@ -519,7 +639,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             <div className="text-center">
               <button
                 type="button"
-                onClick={handleSendOtp}
+                onClick={(e) => {
+                  setOtp(['', '', '', '', '', '']);
+                  handleSendOtp(e);
+                }}
                 className="text-xs font-extrabold text-[#204654] hover:text-[#0F2A4A] underline cursor-pointer"
               >
                 Resend OTP
