@@ -32,6 +32,7 @@ export const MapView: React.FC<MapViewProps> = ({
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
   const userMarkerRef = useRef<L.Marker | null>(null);
+  const radiusCircleRef = useRef<L.Circle | null>(null);
   const postMarkersRef = useRef<{ [id: string]: L.Marker }>({});
 
   const [nearbyPosts, setNearbyPosts] = useState<RiderPost[]>([]);
@@ -41,6 +42,21 @@ export const MapView: React.FC<MapViewProps> = ({
   const [activeJoinRequest, setActiveJoinRequest] = useState<JoinRequest | null>(null);
   const [joinedPost, setJoinedPost] = useState<RiderPost | null>(null);
   const [isLoadingPosts, setIsLoadingPosts] = useState(false);
+
+  // Helper: calculate distance in kilometers using Haversine formula
+  const calculateDistanceKm = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
+    const R = 6371; // Earth radius in km
+    const dLat = ((lat2 - lat1) * Math.PI) / 180;
+    const dLon = ((lon2 - lon1) * Math.PI) / 180;
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos((lat1 * Math.PI) / 180) *
+        Math.cos((lat2 * Math.PI) / 180) *
+        Math.sin(dLon / 2) *
+        Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+  };
 
   // Broadcast hook for host flow
   const {
@@ -64,9 +80,10 @@ export const MapView: React.FC<MapViewProps> = ({
   useEffect(() => {
     if (!mapContainerRef.current || mapInstanceRef.current) return;
 
+    // Zoom level 12 neatly frames a 10 km corridor
     const map = L.map(mapContainerRef.current, {
       center: [coords.lat, coords.lng],
-      zoom: 14,
+      zoom: 12,
       zoomControl: false,
     });
 
@@ -85,10 +102,24 @@ export const MapView: React.FC<MapViewProps> = ({
     };
   }, []);
 
-  // ─── Update User Marker ───
+  // ─── Update User Marker & 10 km Radius Circle ───
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map) return;
+
+    // 10 km radius circle around current location
+    if (!radiusCircleRef.current) {
+      radiusCircleRef.current = L.circle([coords.lat, coords.lng], {
+        radius: 10000, // 10,000 meters = 10 km
+        color: '#0B3059',
+        weight: 1.5,
+        dashArray: '6, 8',
+        fillColor: '#A9E0F1',
+        fillOpacity: 0.12,
+      }).addTo(map);
+    } else {
+      radiusCircleRef.current.setLatLng([coords.lat, coords.lng]);
+    }
 
     const myIcon = L.divIcon({
       className: 'custom-user-marker',
@@ -111,7 +142,7 @@ export const MapView: React.FC<MapViewProps> = ({
     }
   }, [coords.lat, coords.lng]);
 
-  // ─── Fetch Active Broadcasts (within 2 minutes stale timeout) ───
+  // ─── Fetch Active Broadcasts (strictly within 10 km radius & 2-minute timeout) ───
   const fetchActivePosts = async () => {
     setIsLoadingPosts(true);
     try {
@@ -123,9 +154,13 @@ export const MapView: React.FC<MapViewProps> = ({
         .gte('last_seen_at', twoMinutesAgo);
 
       if (data && !error) {
-        // Filter out my own posts from nearby view
-        const others = (data as RiderPost[]).filter((p) => p.host_uid !== user.uid);
-        setNearbyPosts(others);
+        // Filter: ONLY show posts strictly within 10 km of the user's current location!
+        const within10Km = (data as RiderPost[]).filter((p) => {
+          if (p.host_uid === user.uid) return false;
+          const distance = calculateDistanceKm(coords.lat, coords.lng, p.current_lat, p.current_lng);
+          return distance <= 10.0;
+        });
+        setNearbyPosts(within10Km);
       }
     } catch (err) {
       console.error('Error fetching active posts:', err);
@@ -309,12 +344,12 @@ export const MapView: React.FC<MapViewProps> = ({
         </button>
       </div>
 
-      {/* Nearby Auto Counter Badge */}
+      {/* 10 km Radius & Nearby Auto Counter Badge */}
       {!isBroadcasting && !isMatchedRequester && (
-        <div className="absolute top-4 left-4 z-20">
-          <div className="px-3.5 py-2 bg-white/90 backdrop-blur-md rounded-2xl shadow-lg border border-gray-200 flex items-center gap-2 text-xs font-bold text-teal-waters">
+        <div className={`absolute ${routeIntent ? 'top-20' : 'top-4'} left-4 z-20`}>
+          <div className="px-3.5 py-2 bg-white/95 backdrop-blur-md rounded-2xl shadow-lg border border-teal-waters/20 flex items-center gap-2 text-xs font-bold text-teal-waters">
             <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping"></span>
-            <span>{nearbyPosts.length} shared autos nearby</span>
+            <span>{nearbyPosts.length} autos in 10 km radius</span>
           </div>
         </div>
       )}

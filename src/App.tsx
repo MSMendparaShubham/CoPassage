@@ -27,8 +27,8 @@ import {
 } from 'lucide-react';
 
 export default function App() {
-  // Intro Video Playback state (plays automatically when app starts)
-  const [showIntroVideo, setShowIntroVideo] = useState<boolean>(true);
+  // Intro Video Playback state (manual trigger via navbar)
+  const [showIntroVideo, setShowIntroVideo] = useState<boolean>(false);
 
   // Authentication Modal State
   const [isAuthOpen, setIsAuthOpen] = useState<boolean>(false);

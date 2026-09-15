@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { AuthedUser } from '../../types';
 import { LocationCoordinates } from '../../hooks/useGeolocation';
+import { LocationAutocomplete } from './LocationAutocomplete';
 
 export interface RouteIntentData {
   intent: 'have_auto' | 'need_auto';
@@ -187,59 +188,24 @@ export const RiderIntentFlow: React.FC<RiderIntentFlowProps> = ({
                 </div>
               )}
 
-              {/* Current / Pickup Location */}
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-gray-500 mb-1.5">
-                  Current / Pickup Location
-                </label>
-                <div className="relative">
-                  <Navigation className="absolute left-3.5 top-3.5 w-4 h-4 text-emerald-600" />
-                  <input
-                    type="text"
-                    value={pickup}
-                    onChange={(e) => setPickup(e.target.value)}
-                    placeholder="e.g. Metro Station Gate 2"
-                    className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-medium text-gray-900 focus:outline-none focus:ring-2 focus:ring-teal-waters focus:bg-white transition-all"
-                  />
-                </div>
-                <p className="text-[11px] text-gray-400 mt-1 flex items-center gap-1">
-                  <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block"></span>
-                  GPS automatically locked ({coords.lat.toFixed(4)}, {coords.lng.toFixed(4)})
-                </p>
-              </div>
+              {/* Current / Pickup Location with Autocomplete & GPS */}
+              <LocationAutocomplete
+                label="Current / Pickup Location"
+                value={pickup}
+                onChange={(val) => setPickup(val)}
+                placeholder="Search city, metro, or landmark (or use GPS)..."
+                userCoords={coords}
+              />
 
-              {/* Destination */}
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-gray-500 mb-1.5">
-                  Where are you heading? (Destination)
-                </label>
-                <div className="relative">
-                  <MapPin className="absolute left-3.5 top-3.5 w-4 h-4 text-teal-waters" />
-                  <input
-                    type="text"
-                    value={destination}
-                    onChange={(e) => setDestination(e.target.value)}
-                    placeholder="e.g. Cyber Hub, Indiranagar, Bandra West"
-                    className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-medium text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-teal-waters focus:bg-white transition-all"
-                    autoFocus
-                    required
-                  />
-                </div>
-
-                {/* Quick suggestions */}
-                <div className="flex flex-wrap gap-1.5 mt-2">
-                  {quickDestinations.map((dest) => (
-                    <button
-                      key={dest}
-                      type="button"
-                      onClick={() => setDestination(dest)}
-                      className="text-[11px] px-2.5 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors cursor-pointer"
-                    >
-                      {dest}
-                    </button>
-                  ))}
-                </div>
-              </div>
+              {/* Destination with Recommendations (e.g. nad -> Nadiad, Nagpur) */}
+              <LocationAutocomplete
+                label="Where are you heading? (Destination)"
+                value={destination}
+                onChange={(val) => setDestination(val)}
+                placeholder="Type destination (e.g. Nadiad, Nagpur, BKC, Metro)..."
+                autoFocus
+                required
+              />
 
               {/* If "I Have an Auto", ask for Fare & Seats */}
               {selectedIntent === 'have_auto' && (
