@@ -32,6 +32,187 @@ import { ReviewScreen } from './ReviewScreen';
 import { InteractiveScenarioSimulator } from './InteractiveScenarioSimulator';
 import { useBroadcast } from '../../hooks/useBroadcast';
 import { RouteIntentData } from './RiderIntentFlow';
+import { PaymentMethodModal } from './PaymentMethodModal';
+
+import { MAX_RADIUS_KM, TIER_RADIUS_KM, calculatePlatformFee } from '../../constants';
+import {
+  filterNearbyOpenPosts,
+  haversineDistanceKm,
+  calculateBearing,
+  getBearingDifference,
+  tokenOverlap,
+  crossTrackDistanceKm,
+  alongTrackDistanceKm,
+  checkIsInPath,
+  calculateMatchScore,
+  rankNearbyPostsForSeeker,
+  RankedRiderPost
+} from '../../services/geoUtils';
+
+export interface HostRouteInfo {
+  originLat: number;
+  originLng: number;
+  destLat?: number | null;
+  destLng?: number | null;
+}
+
+export interface JoinRequestCandidate extends Partial<JoinRequest> {
+  requester_uid: string;
+  requester_lat?: number | null;
+  requester_lng?: number | null;
+  dest_lat?: number | null;
+  dest_lng?: number | null;
+  matchScore?: number;
+  detourKm?: number | null;
+  alongTrackKm?: number | null;
+  isInPath?: boolean;
+  subscription_tier?: string;
+  [key: string]: any;
+}
+
+export interface RankedJoinRequest extends JoinRequestCandidate {
+  matchScore: number;
+  detourKm: number | null;
+  alongTrackKm: number | null;
+  isInPath: boolean;
+}
+
+/**
+ * Ranks competing join requests using composite match accuracy score (proximity, bearing, destination overlap,
+ * cross-track detour, and in-path route verification) along with tier tie-breaker.
+ */
+function rankJoinRequests<T extends JoinRequestCandidate>(
+  requests: T[],
+  profilesByUid: Record<string, { subscription_tier?: string }> = {},
+  hostRoute?: HostRouteInfo | null
+): (T & { matchScore: number; detourKm: number | null; alongTrackKm: number | null; isInPath: boolean })[] {
+  const tierWeight: Record<string, number> = { unlimited: 2, plus: 1, free: 0 };
+
+  const scoredRequests = requests.map((req) => {
+    const tierStr = req.subscription_tier || profilesByUid[req.requester_uid]?.subscription_tier || 'free';
+    const maxRadiusKm = TIER_RADIUS_KM[tierStr] ?? 1.0;
+
+    let originDist = 0;
+    let bearingDiff = 0;
+    let destDist: number | null = null;
+    let crossTrack: number | null = null;
+    let alongTrack: number | null = null;
+    let totalRoute: number | null = null;
+    let isInPath = true;
+
+    if (hostRoute && req.requester_lat != null && req.requester_lng != null) {
+      originDist = haversineDistanceKm(
+        hostRoute.originLat,
+        hostRoute.originLng,
+        req.requester_lat,
+        req.requester_lng
+      );
+
+      const hasHostDest = hostRoute.destLat != null && hostRoute.destLng != null;
+
+      if (hasHostDest) {
+        totalRoute = haversineDistanceKm(
+          hostRoute.originLat,
+          hostRoute.originLng,
+          hostRoute.destLat!,
+          hostRoute.destLng!
+        );
+
+        const hostBearing = calculateBearing(
+          hostRoute.originLat,
+          hostRoute.originLng,
+          hostRoute.destLat!,
+          hostRoute.destLng!
+        );
+        const seekerBearing = calculateBearing(
+          hostRoute.originLat,
+          hostRoute.originLng,
+          req.requester_lat,
+          req.requester_lng
+        );
+        bearingDiff = getBearingDifference(hostBearing, seekerBearing);
+
+        if (req.dest_lat != null && req.dest_lng != null) {
+          destDist = haversineDistanceKm(
+            req.dest_lat,
+            req.dest_lng,
+            hostRoute.destLat!,
+            hostRoute.destLng!
+          );
+        }
+
+        crossTrack = crossTrackDistanceKm(
+          hostRoute.originLat,
+          hostRoute.originLng,
+          hostRoute.destLat!,
+          hostRoute.destLng!,
+          req.requester_lat,
+          req.requester_lng
+        );
+
+        alongTrack = alongTrackDistanceKm(
+          hostRoute.originLat,
+          hostRoute.originLng,
+          hostRoute.destLat!,
+          hostRoute.destLng!,
+          req.requester_lat,
+          req.requester_lng,
+          crossTrack
+        );
+
+        const pathCheck = checkIsInPath(
+          hostRoute.originLat,
+          hostRoute.originLng,
+          hostRoute.destLat!,
+          hostRoute.destLng!,
+          req.requester_lat,
+          req.requester_lng
+        );
+        isInPath = pathCheck.isInPath;
+      }
+    }
+
+    const calculatedScore = hostRoute && req.requester_lat != null && req.requester_lng != null
+      ? calculateMatchScore({
+          originDistanceKm: originDist,
+          bearingDiffDeg: bearingDiff,
+          destDistanceKm: destDist,
+          crossTrackKm: crossTrack,
+          alongTrackKm: alongTrack,
+          totalRouteKm: totalRoute,
+          maxRadiusKm,
+        })
+      : req.matchScore ?? 85;
+
+    return {
+      ...req,
+      matchScore: req.matchScore !== undefined && !hostRoute ? req.matchScore : calculatedScore,
+      detourKm: crossTrack,
+      alongTrackKm: alongTrack,
+      isInPath,
+    };
+  });
+
+  return scoredRequests.sort((a, b) => {
+    const aTierStr = a.subscription_tier || profilesByUid[a.requester_uid]?.subscription_tier || 'free';
+    const bTierStr = b.subscription_tier || profilesByUid[b.requester_uid]?.subscription_tier || 'free';
+    const aTier = tierWeight[aTierStr] ?? 0;
+    const bTier = tierWeight[bTierStr] ?? 0;
+
+    // If match scores differ by > 5%, better spatial match wins
+    if (Math.abs(b.matchScore - a.matchScore) > 5) {
+      return b.matchScore - a.matchScore;
+    }
+
+    // Tie-breaker: higher subscription tier gets priority
+    if (aTier !== bTier) {
+      return bTier - aTier;
+    }
+
+    // Secondary: higher match score
+    return b.matchScore - a.matchScore;
+  });
+}
 
 interface DirectMatchViewProps {
   user: AuthedUser;
@@ -44,43 +225,8 @@ interface DirectMatchViewProps {
   onSwitchScenario?: (id: string) => void;
 }
 
-// ─── Geo Helpers ───
-
-const calculateDistanceKm = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
-  const R = 6371;
-  const dLat = ((lat2 - lat1) * Math.PI) / 180;
-  const dLon = ((lon2 - lon1) * Math.PI) / 180;
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos((lat1 * Math.PI) / 180) *
-      Math.cos((lat2 * Math.PI) / 180) *
-      Math.sin(dLon / 2) *
-      Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
-};
-
-const calculateBearing = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
-  const toRad = (d: number) => (d * Math.PI) / 180;
-  const toDeg = (r: number) => (r * 180) / Math.PI;
-  const dLon = toRad(lon2 - lon1);
-  const y = Math.sin(dLon) * Math.cos(toRad(lat2));
-  const x =
-    Math.cos(toRad(lat1)) * Math.sin(toRad(lat2)) -
-    Math.sin(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.cos(dLon);
-  return (toDeg(Math.atan2(y, x)) + 360) % 360;
-};
-
-const getBearingDifference = (b1: number, b2: number): number => {
-  const diff = Math.abs(b1 - b2) % 360;
-  return diff > 180 ? 360 - diff : diff;
-};
-
-const tokenOverlap = (a: string, b: string): boolean => {
-  const tokensA = a.toLowerCase().split(/[\s,\-\/]+/).filter(Boolean);
-  const tokensB = new Set(b.toLowerCase().split(/[\s,\-\/]+/).filter(Boolean));
-  return tokensA.some((t) => t.length > 2 && tokensB.has(t));
-};
+// ─── Geo Helpers re-exported from shared geoUtils ───
+const calculateDistanceKm = haversineDistanceKm;
 
 export const DirectMatchView: React.FC<DirectMatchViewProps> = ({
   user,
@@ -92,8 +238,8 @@ export const DirectMatchView: React.FC<DirectMatchViewProps> = ({
   scenarioMode,
   onSwitchScenario,
 }) => {
-  const [nearbyPosts, setNearbyPosts] = useState<RiderPost[]>([]);
-  const [selectedPost, setSelectedPost] = useState<RiderPost | null>(null);
+  const [nearbyPosts, setNearbyPosts] = useState<RankedRiderPost[]>([]);
+  const [selectedPost, setSelectedPost] = useState<RankedRiderPost | RiderPost | null>(null);
   const [isPostModalOpen, setIsPostModalOpen] = useState(false);
   const [isJoinModalOpen, setIsJoinModalOpen] = useState(false);
   const [activeJoinRequest, setActiveJoinRequest] = useState<JoinRequest | null>(null);
@@ -101,17 +247,23 @@ export const DirectMatchView: React.FC<DirectMatchViewProps> = ({
   const [isLoadingPosts, setIsLoadingPosts] = useState(false);
   const [simulatedAccepted, setSimulatedAccepted] = useState(false);
   const [simulatedRejected, setSimulatedRejected] = useState(false);
+  const [hostPayingRequest, setHostPayingRequest] = useState<JoinRequest | null>(null);
 
   // Broadcast hook for host flow
   const {
     activePost,
     incomingRequests,
     isBroadcasting,
+    quotaExceededInfo,
+    setQuotaExceededInfo,
     startBroadcast,
     stopBroadcast,
     acceptRequest,
     rejectRequest,
   } = useBroadcast(user, coords);
+
+  const userTier = user.subscription_tier || 'free';
+  const tierRadiusKm = TIER_RADIUS_KM[userTier] ?? 1.0;
 
   // Auto-start broadcast if host chose "I Got an Auto" in intent flow
   useEffect(() => {
@@ -163,15 +315,15 @@ export const DirectMatchView: React.FC<DirectMatchViewProps> = ({
   const sampleCorridorAutos: RiderPost[] = [
     {
       id: 'demo-post-1',
-      host_uid: 'host-vikram-01',
-      host_name: 'Vikram Sharma',
-      host_phone: '+91 98111 22334',
-      origin_lat: coords.lat + 0.001,
-      origin_lng: coords.lng + 0.001,
+      host_uid: 'demo-host-1',
+      host_name: 'Jayeshbhai Patel',
+      host_phone: '+91 98250 11223',
+      origin_lat: coords.lat + 0.003,
+      origin_lng: coords.lng + 0.002,
       dest_lat: 22.6916,
       dest_lng: 72.8634,
-      dest_label: 'Nadiad Railway Station & Bus Terminal',
-      current_lat: coords.lat + 0.002,
+      dest_label: 'Nadiad Railway Station',
+      current_lat: coords.lat + 0.003,
       current_lng: coords.lng + 0.002,
       total_fare: 150,
       max_riders: 2,
@@ -183,18 +335,18 @@ export const DirectMatchView: React.FC<DirectMatchViewProps> = ({
     },
     {
       id: 'demo-post-2',
-      host_uid: 'host-pooja-02',
-      host_name: 'Pooja Joshi',
-      host_phone: '+91 98222 33445',
-      origin_lat: coords.lat - 0.003,
+      host_uid: 'demo-host-2',
+      host_name: 'Prakashbhai Vaghela',
+      host_phone: '+91 98980 44556',
+      origin_lat: coords.lat - 0.004,
       origin_lng: coords.lng - 0.003,
-      dest_lat: 22.6916,
-      dest_lng: 72.8634,
-      dest_label: 'Nadiad College Road & Central Market',
+      dest_lat: 22.6950,
+      dest_lng: 72.8680,
+      dest_label: 'Nadiad Bus Stand',
       current_lat: coords.lat - 0.004,
-      current_lng: coords.lng - 0.004,
-      total_fare: 120,
-      max_riders: 1,
+      current_lng: coords.lng - 0.003,
+      total_fare: 180,
+      max_riders: 2,
       current_riders: 1,
       status: 'open',
       host_marked_complete: false,
@@ -225,33 +377,165 @@ export const DirectMatchView: React.FC<DirectMatchViewProps> = ({
         console.warn('Querying active posts (fallback to corridor sample if local):', error);
       }
 
-      let posts: RiderPost[] = [];
+      let posts: RankedRiderPost[] = [];
 
       if (data && data.length > 0) {
-        posts = (data as RiderPost[]).filter((p) => p.host_uid !== user.uid);
+        const filtered = filterNearbyOpenPosts(
+          data as RiderPost[],
+          coords.lat,
+          coords.lng,
+          user.uid,
+          routeIntent,
+          tierRadiusKm
+        );
+        posts = rankNearbyPostsForSeeker(
+          filtered,
+          coords.lat,
+          coords.lng,
+          routeIntent,
+          tierRadiusKm
+        );
       }
 
-      // If in demo seeker mode or if 0 live DB posts, blend in sample corridor autos
+      // If in demo seeker mode or if 0 live DB posts, blend in sample corridor autos that pass tier filter
       if (posts.length === 0 && (scenarioMode === 'seeker_match' || routeIntent?.intent === 'need_auto')) {
-        posts = sampleCorridorAutos;
+        const sampleFiltered = filterNearbyOpenPosts(
+          sampleCorridorAutos,
+          coords.lat,
+          coords.lng,
+          user.uid,
+          routeIntent,
+          tierRadiusKm
+        );
+        posts = rankNearbyPostsForSeeker(
+          sampleFiltered,
+          coords.lat,
+          coords.lng,
+          routeIntent,
+          tierRadiusKm
+        );
       }
 
       setNearbyPosts(posts);
     } catch (err) {
       console.warn('Using corridor sample data:', err);
       if (scenarioMode === 'seeker_match' || routeIntent?.intent === 'need_auto') {
-        setNearbyPosts(sampleCorridorAutos);
+        const sampleFiltered = filterNearbyOpenPosts(
+          sampleCorridorAutos,
+          coords.lat,
+          coords.lng,
+          user.uid,
+          routeIntent,
+          tierRadiusKm
+        );
+        setNearbyPosts(
+          rankNearbyPostsForSeeker(
+            sampleFiltered,
+            coords.lat,
+            coords.lng,
+            routeIntent,
+            tierRadiusKm
+          )
+        );
       }
     } finally {
       setIsLoadingPosts(false);
     }
-  }, [coords.lat, coords.lng, user.uid, isMatchedHost, isMatchedRequester, routeIntent, scenarioMode]);
+  }, [coords.lat, coords.lng, user.uid, isMatchedHost, isMatchedRequester, routeIntent, scenarioMode, tierRadiusKm]);
 
   useEffect(() => {
     fetchActivePosts();
     const interval = setInterval(fetchActivePosts, 10000);
     return () => clearInterval(interval);
   }, [fetchActivePosts]);
+
+  // ─── Realtime: Live Open Broadcasts Scoped to 2 km (for Seeker List Feed) ───
+  useEffect(() => {
+    if (isMatchedHost || isMatchedRequester || scenarioMode === 'matched_active_ride') return;
+
+    const channel = supabase
+      .channel('direct_match_live_posts')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'rider_open_posts',
+        },
+        (payload) => {
+          if (payload.eventType === 'INSERT') {
+            const newPost = payload.new as RiderPost;
+            if (newPost.status === 'open') {
+              const matched = filterNearbyOpenPosts(
+                [newPost],
+                coords.lat,
+                coords.lng,
+                user.uid,
+                routeIntent,
+                tierRadiusKm
+              );
+              if (matched.length > 0) {
+                setNearbyPosts((prev) => {
+                  const filtered = prev.filter((p) => p.id !== newPost.id);
+                  return [...filtered, matched[0]];
+                });
+              }
+            }
+          } else if (payload.eventType === 'UPDATE') {
+            const updated = payload.new as RiderPost;
+            if (updated.status !== 'open') {
+              setNearbyPosts((prev) => prev.filter((p) => p.id !== updated.id));
+            } else {
+              const matched = filterNearbyOpenPosts(
+                [updated],
+                coords.lat,
+                coords.lng,
+                user.uid,
+                routeIntent,
+                tierRadiusKm
+              );
+              setNearbyPosts((prev) => {
+                const filtered = prev.filter((p) => p.id !== updated.id);
+                return matched.length > 0 ? [...filtered, matched[0]] : filtered;
+              });
+            }
+          } else if (payload.eventType === 'DELETE') {
+            // Realtime DELETE payloads only contain the primary key ({ id }).
+            // Directly remove the post from local state by ID.
+            const deletedId = (payload.old as { id?: string })?.id;
+            if (deletedId) {
+              setNearbyPosts((prev) => prev.filter((p) => p.id !== deletedId));
+            }
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [coords.lat, coords.lng, user.uid, routeIntent, isMatchedHost, isMatchedRequester, scenarioMode]);
+
+  // ─── Client-Side Periodic Staleness Sweep ───
+  // Independently prunes any post whose last_seen_at has exceeded the 2-minute threshold,
+  // regardless of whether a Realtime event was received (safety net for host crashes/disconnects).
+  useEffect(() => {
+    const STALE_CHECK_INTERVAL_MS = 15_000; // check every 15s
+    const STALE_THRESHOLD_MS = 2 * 60 * 1000; // 2 minutes
+
+    const interval = setInterval(() => {
+      setNearbyPosts((prev) =>
+        prev.filter((post) => {
+          if (!post.last_seen_at) return true;
+          const lastSeen = new Date(post.last_seen_at).getTime();
+          return Date.now() - lastSeen <= STALE_THRESHOLD_MS;
+        })
+      );
+    }, STALE_CHECK_INTERVAL_MS);
+
+    return () => clearInterval(interval);
+  }, []);
+
 
   // ─── Realtime: Join Requests (for Requesters) ───
   useEffect(() => {
@@ -387,12 +671,21 @@ export const DirectMatchView: React.FC<DirectMatchViewProps> = ({
     const maxRiders = activePost?.max_riders || routeIntent?.seats || 2;
     const splitFare = Math.round(totalFare / (maxRiders + 1));
     const destLabel = activePost?.dest_label || routeIntent?.destination || 'Nadiad Railway Station Corridor';
-    
-    // Merge live DB requests with demo incoming request if none yet
-    let pendingRequests = incomingRequests.filter((r) => r.status === 'pending');
-    if (pendingRequests.length === 0 && !simulatedRejected) {
-      pendingRequests = [demoIncomingRequest];
+    const hostRoute: HostRouteInfo = {
+      originLat: activePost?.origin_lat ?? coords.lat,
+      originLng: activePost?.origin_lng ?? coords.lng,
+      destLat: activePost?.dest_lat ?? (routeIntent?.destLat ?? routeIntent?.destinationCoords?.lat ?? null),
+      destLng: activePost?.dest_lng ?? (routeIntent?.destLng ?? routeIntent?.destinationCoords?.lng ?? null),
+    };
+
+    // Merge live DB requests with demo incoming request if none yet, ranked by priority tie-breaker
+    let rawPending: JoinRequest[] = incomingRequests.filter((r) => r.status === 'pending');
+    if (rawPending.length === 0 && !simulatedRejected) {
+      rawPending = [demoIncomingRequest];
     }
+    const pendingRequests = rankJoinRequests(rawPending, {}, hostRoute);
+
+    const hostFee = calculatePlatformFee(splitFare, userTier);
 
     return (
       <div className="p-4 sm:p-6 pb-40 sm:pb-44 space-y-5 animate-fade-in max-w-3xl mx-auto">
@@ -412,7 +705,7 @@ export const DirectMatchView: React.FC<DirectMatchViewProps> = ({
                   Live Broadcast Active
                 </span>
                 <span className="text-xs text-gray-500 font-medium ml-2 hidden sm:inline">
-                  Visible to commuters within 2 km
+                  Visible to commuters within {tierRadiusKm} km
                 </span>
               </div>
             </div>
@@ -474,6 +767,14 @@ export const DirectMatchView: React.FC<DirectMatchViewProps> = ({
                 {maxRiders} {maxRiders === 1 ? 'Seat Open' : 'Seats Open'}
               </span>
             </div>
+
+            {/* Platform Fee Breakdown */}
+            <div className="pt-2 border-t border-gray-100 flex items-center justify-between text-[11px] font-bold text-gray-600">
+              <span>Platform Fee ({userTier === 'unlimited' ? 'Unlimited Tier' : userTier === 'plus' ? 'Plus Tier' : 'Free Tier'}):</span>
+              <span className={userTier === 'unlimited' ? 'text-emerald-700 font-extrabold' : 'text-[#0F2A4A] font-extrabold'}>
+                {userTier === 'unlimited' ? '₹0 (Waived)' : userTier === 'plus' ? 'Flat ₹10' : `₹${hostFee} (${splitFare * 0.10 < 15 ? 'Min ₹15' : '10%'})`}
+              </span>
+            </div>
           </div>
 
           {/* Incoming Co-Riders Queue Section */}
@@ -508,13 +809,28 @@ export const DirectMatchView: React.FC<DirectMatchViewProps> = ({
                     className="p-4 bg-white border-2 border-[#0F2A4A]/20 rounded-2xl shadow-sm flex items-center justify-between gap-3 animate-slide-up"
                   >
                     <div className="min-w-0">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-black text-sm text-[#0F2A4A]">{req.requester_name}</span>
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
-                          Co-Rider
+                        <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-[#CAFFA6]/70 text-[#0F2A4A] border border-[#0F2A4A]/20">
+                          {req.matchScore}% Match
                         </span>
+                        {req.isInPath && (
+                          <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300 flex items-center gap-1">
+                            ✓ In Route Path
+                          </span>
+                        )}
+                        {req.detourKm != null && (
+                          <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-red-50 text-red-700 border border-red-200 flex items-center gap-1 shadow-xs">
+                            📍 {req.detourKm < 0.05 ? '0m detour' : req.detourKm < 1 ? `${(req.detourKm * 1000).toFixed(0)}m detour` : `${req.detourKm.toFixed(2)}km detour`}
+                          </span>
+                        )}
                       </div>
-                      <div className="text-xs text-gray-500 font-mono mt-0.5">{req.requester_phone}</div>
+                      <div className="text-xs text-gray-500 font-mono mt-0.5 flex items-center gap-2">
+                        <span>{req.requester_phone}</span>
+                        {req.alongTrackKm != null && req.alongTrackKm > 0 && (
+                          <span className="text-[11px] text-gray-400 font-sans">• ~{req.alongTrackKm < 1 ? `${(req.alongTrackKm * 1000).toFixed(0)}m ahead` : `${req.alongTrackKm.toFixed(1)}km ahead`}</span>
+                        )}
+                      </div>
                     </div>
 
                     <div className="flex items-center gap-2 shrink-0">
@@ -532,10 +848,14 @@ export const DirectMatchView: React.FC<DirectMatchViewProps> = ({
                       </button>
                       <button
                         onClick={() => {
-                          if (req.id === demoIncomingRequest.id) {
-                            setSimulatedAccepted(true);
+                          if (hostFee > 0) {
+                            setHostPayingRequest(req);
                           } else {
-                            acceptRequest(req);
+                            if (req.id === demoIncomingRequest.id) {
+                              setSimulatedAccepted(true);
+                            } else {
+                              acceptRequest(req, { paidVia: 'vault', feeAmount: 0 });
+                            }
                           }
                         }}
                         className="px-4 py-2 rounded-xl bg-[#0F2A4A] hover:bg-[#1b3d63] text-[#CAFFA6] text-xs font-black shadow-sm transition-all active:scale-95 cursor-pointer flex items-center gap-1.5"
@@ -550,6 +870,30 @@ export const DirectMatchView: React.FC<DirectMatchViewProps> = ({
             )}
           </div>
         </div>
+
+        {/* Host Payment Method Gate Modal */}
+        {hostPayingRequest && (
+          <PaymentMethodModal
+            isOpen={true}
+            onClose={() => setHostPayingRequest(null)}
+            amount={hostFee}
+            role="host"
+            user={user}
+            destination={destLabel}
+            onPaid={async (method, paymentId) => {
+              if (hostPayingRequest.id === demoIncomingRequest.id) {
+                setSimulatedAccepted(true);
+              } else {
+                await acceptRequest(hostPayingRequest, {
+                  paidVia: method,
+                  feeAmount: hostFee,
+                  razorpayPaymentId: paymentId,
+                });
+              }
+              setHostPayingRequest(null);
+            }}
+          />
+        )}
 
         {/* Change Mode/Route Action */}
         {onResetIntent && (
@@ -629,7 +973,7 @@ export const DirectMatchView: React.FC<DirectMatchViewProps> = ({
           </div>
           <div>
             <h4 className="text-xs sm:text-sm font-black text-[#0F2A4A] uppercase tracking-wider">
-              2 km Corridor Radar
+              {tierRadiusKm} km Corridor Radar
             </h4>
             <p className="text-[11px] text-gray-500 font-medium">
               {nearbyPosts.length} shared {nearbyPosts.length === 1 ? 'auto' : 'autos'} active nearby
@@ -672,7 +1016,7 @@ export const DirectMatchView: React.FC<DirectMatchViewProps> = ({
           <div className="py-20 text-center bg-white rounded-3xl border border-[#0F2A4A]/10 shadow-xs space-y-3">
             <RefreshCw className="w-9 h-9 mx-auto text-[#0F2A4A] animate-spin" />
             <p className="font-extrabold text-sm text-[#0F2A4A]">Scanning corridor for active autos...</p>
-            <p className="text-xs text-gray-500">Checking within 2 km of your live GPS.</p>
+            <p className="text-xs text-gray-500">Checking within {tierRadiusKm} km of your live GPS.</p>
           </div>
         ) : nearbyPosts.length === 0 ? (
           <div className="py-16 px-6 text-center bg-white rounded-3xl border-2 border-dashed border-[#0F2A4A]/20 shadow-xs space-y-4">
@@ -685,7 +1029,7 @@ export const DirectMatchView: React.FC<DirectMatchViewProps> = ({
             <div className="max-w-md mx-auto space-y-1">
               <h3 className="text-lg font-black text-[#0F2A4A]">Searching for Available Autos</h3>
               <p className="text-xs sm:text-sm text-gray-600 leading-relaxed font-medium">
-                No other commuters are currently broadcasting an auto along this route right now. We are actively scanning your 2 km corridor.
+                No other commuters are currently broadcasting an auto along this route right now. We are actively scanning your {tierRadiusKm} km corridor.
               </p>
             </div>
 
@@ -725,14 +1069,27 @@ export const DirectMatchView: React.FC<DirectMatchViewProps> = ({
                     <div>
                       <div className="flex items-center gap-2 flex-wrap">
                         <h4 className="font-extrabold text-base text-[#0F2A4A]">{post.host_name}</h4>
-                        <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
-                          Verified Host
+                        <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-[#CAFFA6]/70 text-[#0F2A4A] border border-[#0F2A4A]/20">
+                          {post.matchScore ?? 90}% Match
                         </span>
+                        {post.isInPath && (
+                          <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300 flex items-center gap-1">
+                            ✓ In Route Path
+                          </span>
+                        )}
+                        {post.detourKm != null && (
+                          <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-red-50 text-red-700 border border-red-200 flex items-center gap-1 shadow-xs">
+                            📍 {post.detourKm < 0.05 ? '0m detour' : post.detourKm < 1 ? `${(post.detourKm * 1000).toFixed(0)}m detour` : `${post.detourKm.toFixed(2)}km detour`}
+                          </span>
+                        )}
                       </div>
                       <div className="flex items-center gap-2 text-xs text-gray-500 mt-0.5 font-medium">
                         <span className="text-emerald-700 font-mono font-black">{distKm} km away</span>
                         <span>•</span>
                         <span>{maxRiders} seats to share</span>
+                        {post.alongTrackKm != null && post.alongTrackKm > 0 && (
+                          <span className="text-gray-400 font-sans">• ~{post.alongTrackKm < 1 ? `${(post.alongTrackKm * 1000).toFixed(0)}m ahead` : `${post.alongTrackKm.toFixed(1)}km ahead`}</span>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -753,6 +1110,14 @@ export const DirectMatchView: React.FC<DirectMatchViewProps> = ({
                   </div>
                   <span className="text-[10px] font-extrabold text-[#0F2A4A] bg-[#CAFFA6]/50 px-2 py-0.5 rounded-md shrink-0">
                     CoPassage Corridor
+                  </span>
+                </div>
+
+                {/* Candidate Card Platform Fee Line Item */}
+                <div className="flex items-center justify-between text-[11px] font-bold text-gray-500 px-1">
+                  <span>Platform Fee ({userTier === 'unlimited' ? 'Unlimited' : userTier === 'plus' ? 'Plus' : 'Free'}):</span>
+                  <span className={userTier === 'unlimited' ? 'text-emerald-700 font-extrabold' : 'text-[#0F2A4A] font-extrabold'}>
+                    {userTier === 'unlimited' ? '₹0 (Waived)' : userTier === 'plus' ? 'Flat ₹25' : `₹${calculatePlatformFee(splitFare, userTier)} (10%)`}
                   </span>
                 </div>
 
@@ -786,6 +1151,8 @@ export const DirectMatchView: React.FC<DirectMatchViewProps> = ({
         onClose={() => setIsJoinModalOpen(false)}
         post={selectedPost}
         user={user}
+        coords={coords}
+        routeIntent={routeIntent}
         onRequestSent={(req) => setActiveJoinRequest(req)}
       />
     </div>

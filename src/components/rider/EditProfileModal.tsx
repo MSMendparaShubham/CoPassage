@@ -17,6 +17,7 @@ import { AuthedUser } from '../../types';
 import { auth } from '../../firebase';
 import { updateProfile } from 'firebase/auth';
 import { supabase } from '../../supabase';
+import { checkEmailRegistration, saveLocalRegisteredUser } from '../../services/authRegistration';
 
 interface EditProfileModalProps {
   isOpen: boolean;
@@ -65,11 +66,29 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
     setIsSaving(true);
     setError(null);
 
+    const cleanEmail = email.trim().toLowerCase();
+    if (cleanEmail) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(cleanEmail)) {
+        setIsSaving(false);
+        setError('Please enter a valid email address.');
+        return;
+      }
+
+      // Enforce: One mail one time
+      const emailCheck = await checkEmailRegistration(cleanEmail, user.phone);
+      if (emailCheck.isRegistered && emailCheck.registeredUser?.uid !== user.uid) {
+        setIsSaving(false);
+        setError(`The email (${cleanEmail}) is already used by another account. Each email can only be registered once.`);
+        return;
+      }
+    }
+
     const updatedUser: AuthedUser = {
       ...user,
       name: name.trim(),
       phone: phone.trim(),
-      email: email.trim() || undefined,
+      email: cleanEmail || undefined,
       gender,
       preferredCorridor: preferredCorridor.trim() || undefined,
       emergencyContactName: emergencyContactName.trim() || undefined,
@@ -91,12 +110,20 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
 
       // 2. Update Supabase profiles table
       try {
-        await supabase.from('profiles').upsert({
+        const payload: Record<string, any> = {
           id: user.uid,
           full_name: name.trim(),
           phone: phone.trim(),
           role: user.role || 'rider',
-        });
+        };
+        if (cleanEmail) {
+          payload.email = cleanEmail;
+        }
+        const res = await supabase.from('profiles').upsert(payload);
+        if (res.error && res.error.message?.includes('email')) {
+          delete payload.email;
+          await supabase.from('profiles').upsert(payload);
+        }
       } catch (sbErr) {
         console.warn('Supabase profile upsert warning:', sbErr);
       }
@@ -104,6 +131,13 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
       // 3. Persist in localStorage for persistent offline sync
       try {
         localStorage.setItem(`copassage_profile_${user.uid}`, JSON.stringify(updatedUser));
+        saveLocalRegisteredUser({
+          uid: user.uid,
+          phone: user.phone,
+          fullName: name.trim(),
+          email: cleanEmail || undefined,
+          role: user.role || 'rider',
+        });
       } catch {
         // ignore localStorage quota errors
       }

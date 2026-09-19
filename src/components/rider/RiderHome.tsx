@@ -6,6 +6,7 @@ import { DirectMatchView } from './DirectMatchView';
 import { ActivityView } from './ActivityView';
 import { ProfileView } from './ProfileView';
 import { RiderIntentFlow, RouteIntentData } from './RiderIntentFlow';
+import { PlansSection } from '../pricing/PlansSection';
 
 interface RiderHomeProps {
   user: AuthedUser;
@@ -16,6 +17,7 @@ interface RiderHomeProps {
   onClearScenario?: () => void;
   onSwitchScenario?: (id: string) => void;
   onUpdateUser?: (updatedUser: AuthedUser) => void;
+  initialTab?: 'match' | 'activity' | 'profile';
 }
 
 export const RiderHome: React.FC<RiderHomeProps> = ({
@@ -27,10 +29,18 @@ export const RiderHome: React.FC<RiderHomeProps> = ({
   onClearScenario,
   onSwitchScenario,
   onUpdateUser,
+  initialTab = 'match',
 }) => {
-  const [activeTab, setActiveTab] = useState<'match' | 'activity' | 'profile'>('match');
+  const [activeTab, setActiveTab] = useState<'match' | 'activity' | 'profile'>(initialTab);
   const [routeIntent, setRouteIntent] = useState<RouteIntentData | null>(null);
+  const [showPlansModal, setShowPlansModal] = useState(false);
   const { coordinates, hasPermission, startTracking } = useGeolocation();
+
+  useEffect(() => {
+    if (initialTab) {
+      setActiveTab(initialTab);
+    }
+  }, [initialTab]);
 
   // Prompt location contextually on first load
   useEffect(() => {
@@ -252,6 +262,7 @@ export const RiderHome: React.FC<RiderHomeProps> = ({
                 user={user}
                 coords={coordinates}
                 onComplete={(data) => setRouteIntent(data)}
+                onOpenPlans={() => setShowPlansModal(true)}
               />
             ) : (
               <DirectMatchView
@@ -299,6 +310,19 @@ export const RiderHome: React.FC<RiderHomeProps> = ({
           })}
         </nav>
       </div>
+
+      {/* Universal Plans & Upgrade Modal */}
+      {showPlansModal && (
+        <PlansSection
+          isModal
+          currentUser={user}
+          onCloseModal={() => setShowPlansModal(false)}
+          onViewProfile={() => {
+            setShowPlansModal(false);
+            setActiveTab('profile');
+          }}
+        />
+      )}
     </div>
   );
 };

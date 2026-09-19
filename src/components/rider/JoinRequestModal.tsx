@@ -1,13 +1,28 @@
 import React, { useState } from 'react';
-import { MapPin, Users, IndianRupee, ShieldCheck, ArrowRight, X, Loader2 } from 'lucide-react';
+import { MapPin, Users, IndianRupee, ShieldCheck, ArrowRight, X, Loader2, Sparkles, Navigation } from 'lucide-react';
 import { supabase } from '../../supabase';
 import { RiderPost, AuthedUser, JoinRequest } from '../../types';
+import { calculatePlatformFee, TIER_RADIUS_KM } from '../../constants';
+import { LocationCoordinates } from '../../hooks/useGeolocation';
+import { RouteIntentData } from './RiderIntentFlow';
+import {
+  calculateMatchScore,
+  crossTrackDistanceKm,
+  alongTrackDistanceKm,
+  checkIsInPath,
+  haversineDistanceKm,
+  calculateBearing,
+  getBearingDifference
+} from '../../services/geoUtils';
+import { PaymentMethodModal } from './PaymentMethodModal';
 
 interface JoinRequestModalProps {
   isOpen: boolean;
   onClose: () => void;
   post: RiderPost | null;
   user: AuthedUser;
+  coords?: LocationCoordinates | null;
+  routeIntent?: RouteIntentData | null;
   onRequestSent: (request: JoinRequest) => void;
 }
 
@@ -16,20 +31,86 @@ export const JoinRequestModal: React.FC<JoinRequestModalProps> = ({
   onClose,
   post,
   user,
+  coords,
+  routeIntent,
   onRequestSent,
 }) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
 
   if (!isOpen || !post) return null;
 
   const totalFare = post.total_fare || 0;
   const maxRiders = post.max_riders || 2;
   const splitFare = Math.round(totalFare / (maxRiders + 1));
+  const userTier = user.subscription_tier || 'free';
+  const platformFee = calculatePlatformFee(splitFare, userTier);
 
-  const handleSendRequest = async () => {
+  // Compute live match score and route detour if coordinates available
+  let matchScore: number = (post as any)?.matchScore ?? 92;
+  let detourKm: number | null = (post as any)?.detourKm ?? null;
+  let alongTrackKm: number | null = (post as any)?.alongTrackKm ?? null;
+  let isInPath: boolean = (post as any)?.isInPath ?? true;
+
+  if (coords && post && (detourKm === null || (post as any).matchScore === undefined)) {
+    const hostOriginLat = post.origin_lat ?? post.current_lat;
+    const hostOriginLng = post.origin_lng ?? post.current_lng;
+    const seekerDestLat = routeIntent?.destLat ?? routeIntent?.destinationCoords?.lat;
+    const seekerDestLng = routeIntent?.destLng ?? routeIntent?.destinationCoords?.lng;
+
+    const originDist = haversineDistanceKm(coords.lat, coords.lng, post.current_lat, post.current_lng);
+    let bearingDiff = 0;
+    let destDist: number | null = null;
+    let totalRoute: number | null = null;
+
+    if (post.dest_lat != null && post.dest_lng != null) {
+      totalRoute = haversineDistanceKm(hostOriginLat, hostOriginLng, post.dest_lat, post.dest_lng);
+      detourKm = crossTrackDistanceKm(hostOriginLat, hostOriginLng, post.dest_lat, post.dest_lng, coords.lat, coords.lng);
+      alongTrackKm = alongTrackDistanceKm(hostOriginLat, hostOriginLng, post.dest_lat, post.dest_lng, coords.lat, coords.lng, detourKm);
+      const pathRes = checkIsInPath(hostOriginLat, hostOriginLng, post.dest_lat, post.dest_lng, coords.lat, coords.lng);
+      isInPath = pathRes.isInPath;
+
+      if (seekerDestLat != null && seekerDestLng != null) {
+        const sBearing = calculateBearing(coords.lat, coords.lng, seekerDestLat, seekerDestLng);
+        const hBearing = calculateBearing(post.current_lat, post.current_lng, post.dest_lat, post.dest_lng);
+        bearingDiff = getBearingDifference(sBearing, hBearing);
+        destDist = haversineDistanceKm(seekerDestLat, seekerDestLng, post.dest_lat, post.dest_lng);
+      }
+    }
+
+    matchScore = calculateMatchScore({
+      originDistanceKm: originDist,
+      bearingDiffDeg: bearingDiff,
+      destDistanceKm: destDist,
+      crossTrackKm: detourKm,
+      alongTrackKm: alongTrackKm,
+      totalRouteKm: totalRoute,
+      maxRadiusKm: TIER_RADIUS_KM[userTier] ?? 1.0,
+    });
+  }
+
+  const handleInitiateRequest = () => {
+    if (platformFee > 0) {
+      setIsPaymentModalOpen(true);
+    } else {
+      // Unlimited tier / ₹0 fee: proceed directly
+      handleConfirmSendRequest('vault', 0);
+    }
+  };
+
+  const handleConfirmSendRequest = async (
+    paidVia: 'razorpay' | 'vault',
+    feeAmount: number,
+    paymentId?: string
+  ) => {
     setIsSubmitting(true);
     setError(null);
+
+    const reqLat = coords?.lat ?? null;
+    const reqLng = coords?.lng ?? null;
+    const reqDestLat = routeIntent?.destLat ?? routeIntent?.destinationCoords?.lat ?? null;
+    const reqDestLng = routeIntent?.destLng ?? routeIntent?.destinationCoords?.lng ?? null;
 
     // If this is a demo post, simulate immediately without DB errors
     if (post.id.startsWith('demo-')) {
@@ -38,34 +119,39 @@ export const JoinRequestModal: React.FC<JoinRequestModalProps> = ({
           id: 'demo-req-' + Date.now(),
           post_id: post.id,
           requester_uid: user.uid,
-          requester_name: user.name,
+          requester_name: user.name || user.fullName,
           requester_phone: user.phone,
-          requester_lat: null,
-          requester_lng: null,
+          requester_lat: reqLat,
+          requester_lng: reqLng,
           rider_marked_complete: false,
           status: 'pending',
+          requester_fee_amount: feeAmount,
+          requester_fee_paid_via: paidVia,
+          requester_fee_status: 'paid',
           created_at: new Date().toISOString(),
         };
         onRequestSent(demoReq);
         setIsSubmitting(false);
+        setIsPaymentModalOpen(false);
         onClose();
       }, 500);
       return;
     }
 
     try {
-      // NOTE: As per privacy spec and RLS Option A, requester_lat and requester_lng
-      // MUST be NULL at insert. Location is only shared AFTER host acceptance!
       const { data, error: insertError } = await supabase
         .from('join_requests')
         .insert({
           post_id: post.id,
           requester_uid: user.uid,
-          requester_name: user.name,
+          requester_name: user.name || user.fullName,
           requester_phone: user.phone,
-          requester_lat: null,
-          requester_lng: null,
+          requester_lat: reqLat,
+          requester_lng: reqLng,
           status: 'pending',
+          requester_fee_amount: feeAmount,
+          requester_fee_paid_via: paidVia,
+          requester_fee_status: 'paid',
         })
         .select()
         .single();
@@ -73,6 +159,7 @@ export const JoinRequestModal: React.FC<JoinRequestModalProps> = ({
       if (insertError) throw insertError;
 
       onRequestSent(data as JoinRequest);
+      setIsPaymentModalOpen(false);
       onClose();
     } catch (err: any) {
       console.error('Error sending join request:', err);
@@ -93,13 +180,18 @@ export const JoinRequestModal: React.FC<JoinRequestModalProps> = ({
           >
             <X className="w-5 h-5" />
           </button>
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-spring-meadow/20 text-spring-meadow text-xs font-semibold mb-2">
-            <Users className="w-3.5 h-3.5" />
-            <span>Shared Auto Ride</span>
+          <div className="flex items-center gap-2 flex-wrap mb-2">
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-spring-meadow/20 text-spring-meadow text-xs font-semibold">
+              <Users className="w-3.5 h-3.5" />
+              <span>Shared Auto Ride</span>
+            </div>
+            <span className="text-[11px] font-black px-2.5 py-0.5 rounded-full bg-[#CAFFA6] text-[#0F2A4A]">
+              {matchScore}% Route Match
+            </span>
           </div>
           <h2 className="text-xl font-bold">Join {post.host_name}'s Auto</h2>
           <p className="text-xs text-glacial-sky mt-0.5">
-            Auto rickshaw found offline & waiting for co-riders.
+            {isInPath ? 'Auto is traversing directly along your travel corridor.' : 'Auto rickshaw verified nearby.'}
           </p>
         </div>
 
@@ -110,6 +202,17 @@ export const JoinRequestModal: React.FC<JoinRequestModalProps> = ({
               {error}
             </div>
           )}
+
+          {/* Match Quality Banner */}
+          <div className="p-3 bg-emerald-50 rounded-2xl border border-emerald-200 flex items-center justify-between text-xs text-[#0F2A4A] font-bold">
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span>{isInPath ? 'On Your Route Path' : 'Nearby Pickup'}</span>
+            </div>
+            <span className="font-mono text-[11px] font-bold text-red-700 bg-red-50 border border-red-200 px-2.5 py-0.5 rounded-full shadow-xs">
+              {detourKm != null ? (detourKm < 0.05 ? '📍 0m detour (direct)' : `📍 ${(detourKm * 1000).toFixed(0)}m detour`) : 'Direct Corridor'}
+            </span>
+          </div>
 
           {/* Ride Info Box */}
           <div className="p-4 bg-gray-50 rounded-2xl border border-gray-200 space-y-3">
@@ -134,15 +237,43 @@ export const JoinRequestModal: React.FC<JoinRequestModalProps> = ({
           </div>
 
           {/* Fare Split Callout */}
-          <div className="p-4 bg-morning-mist border border-teal-waters/20 rounded-2xl flex items-center justify-between">
-            <div>
-              <span className="text-xs font-bold text-teal-waters">Your Fair Split</span>
-              <p className="text-[11px] text-gray-600">Equal split among all co-riders</p>
+          <div className="p-4 bg-morning-mist border border-teal-waters/20 rounded-2xl space-y-2.5">
+            <div className="flex items-center justify-between">
+              <div>
+                <span className="text-xs font-bold text-teal-waters">Your Fair Split</span>
+                <p className="text-[11px] text-gray-600">Equal split among all co-riders</p>
+              </div>
+              <div className="text-right">
+                <span className="text-2xl font-extrabold text-teal-waters font-mono">₹{splitFare}</span>
+                <span className="text-[10px] text-gray-500 block">/ person</span>
+              </div>
             </div>
-            <div className="text-right">
-              <span className="text-2xl font-extrabold text-teal-waters font-mono">₹{splitFare}</span>
-              <span className="text-[10px] text-gray-500 block">/ person</span>
+
+            {/* Platform Fee Line Item */}
+            <div className="pt-2 border-t border-teal-waters/15 flex items-center justify-between text-xs text-gray-700">
+              <span className="text-[11px] font-bold text-gray-500">
+                CoPassage fee ({userTier === 'unlimited' ? 'Unlimited' : userTier === 'plus' ? 'Plus — flat ₹10' : 'Free — max(₹15, 10%)'}):
+              </span>
+              <span className="font-extrabold text-xs text-teal-waters">
+                {userTier === 'unlimited'
+                  ? '₹0 (Waived)'
+                  : userTier === 'plus'
+                  ? 'Flat ₹10'
+                  : `₹${platformFee.toFixed(2)}${splitFare * 0.10 < 15 ? ' (Min ₹15)' : ' (10%)'}`}
+              </span>
             </div>
+
+            {/* CoPassage Fee is what you pay through the app */}
+            <div className="pt-2 border-t border-teal-waters/15 flex items-center justify-between text-xs font-bold text-teal-waters">
+              <span>Pay to CoPassage:</span>
+              <span className="font-mono text-sm font-extrabold">
+                {userTier === 'unlimited' ? '₹0.00' : `₹${platformFee.toFixed(2)}`}
+              </span>
+            </div>
+
+            <p className="text-[10px] text-gray-400">
+              Your ₹{splitFare} fare share is paid directly to the driver (cash/UPI offline).
+            </p>
           </div>
 
           {/* Privacy & Safety Note */}
@@ -155,14 +286,14 @@ export const JoinRequestModal: React.FC<JoinRequestModalProps> = ({
 
           {/* Send Request Button */}
           <button
-            onClick={handleSendRequest}
+            onClick={handleInitiateRequest}
             disabled={isSubmitting}
             className="w-full py-3.5 px-6 bg-rickshaw-yellow hover:bg-rickshaw-yellow-light text-logo-navy font-bold rounded-xl shadow-lg hover:shadow-rickshaw-yellow/30 flex items-center justify-center gap-2 transition-all active:scale-[0.98] disabled:opacity-50 cursor-pointer"
           >
             {isSubmitting ? (
               <>
                 <Loader2 className="w-5 h-5 animate-spin" />
-                <span>Sending Request...</span>
+                <span>Processing...</span>
               </>
             ) : (
               <>
@@ -173,6 +304,19 @@ export const JoinRequestModal: React.FC<JoinRequestModalProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Payment Method Gate Modal */}
+      <PaymentMethodModal
+        isOpen={isPaymentModalOpen}
+        onClose={() => setIsPaymentModalOpen(false)}
+        amount={platformFee}
+        role="requester"
+        user={user}
+        destination={post.dest_label || 'CoPassage Ride'}
+        onPaid={async (method, paymentId) => {
+          await handleConfirmSendRequest(method, platformFee, paymentId);
+        }}
+      />
     </div>
   );
 };

@@ -1,6 +1,16 @@
 import React from 'react';
-import { Radio, Users, Check, X, MapPin, IndianRupee, StopCircle } from 'lucide-react';
+import { Radio, Users, Check, X, MapPin, IndianRupee, StopCircle, Sparkles } from 'lucide-react';
 import { RiderPost, JoinRequest } from '../../types';
+import {
+  crossTrackDistanceKm,
+  alongTrackDistanceKm,
+  checkIsInPath,
+  calculateMatchScore,
+  haversineDistanceKm,
+  calculateBearing,
+  getBearingDifference
+} from '../../services/geoUtils';
+import { TIER_RADIUS_KM } from '../../constants';
 
 interface HostBroadcastOverlayProps {
   post: RiderPost;
@@ -17,7 +27,81 @@ export const HostBroadcastOverlay: React.FC<HostBroadcastOverlayProps> = ({
   onRejectRequest,
   onStopBroadcast,
 }) => {
-  const pendingRequests = incomingRequests.filter((r) => r.status === 'pending');
+  const hostOriginLat = post.origin_lat ?? post.current_lat;
+  const hostOriginLng = post.origin_lng ?? post.current_lng;
+  const hasHostDest = post.dest_lat != null && post.dest_lng != null;
+  const totalRoute = hasHostDest ? haversineDistanceKm(hostOriginLat, hostOriginLng, post.dest_lat!, post.dest_lng!) : null;
+  const hostBearing = hasHostDest ? calculateBearing(hostOriginLat, hostOriginLng, post.dest_lat!, post.dest_lng!) : null;
+
+  const pendingRequests = incomingRequests
+    .filter((r) => r.status === 'pending')
+    .map((req) => {
+      let originDist = 0;
+      let bearingDiff = 0;
+      let crossTrack: number | null = null;
+      let alongTrack: number | null = null;
+      let isInPath = true;
+
+      if (req.requester_lat != null && req.requester_lng != null) {
+        originDist = haversineDistanceKm(hostOriginLat, hostOriginLng, req.requester_lat, req.requester_lng);
+
+        if (hasHostDest) {
+          const seekerBearing = calculateBearing(hostOriginLat, hostOriginLng, req.requester_lat, req.requester_lng);
+          bearingDiff = getBearingDifference(hostBearing!, seekerBearing);
+
+          crossTrack = crossTrackDistanceKm(
+            hostOriginLat,
+            hostOriginLng,
+            post.dest_lat!,
+            post.dest_lng!,
+            req.requester_lat,
+            req.requester_lng
+          );
+
+          alongTrack = alongTrackDistanceKm(
+            hostOriginLat,
+            hostOriginLng,
+            post.dest_lat!,
+            post.dest_lng!,
+            req.requester_lat,
+            req.requester_lng,
+            crossTrack
+          );
+
+          const pathCheck = checkIsInPath(
+            hostOriginLat,
+            hostOriginLng,
+            post.dest_lat!,
+            post.dest_lng!,
+            req.requester_lat,
+            req.requester_lng
+          );
+          isInPath = pathCheck.isInPath;
+        }
+      }
+
+      const score = req.requester_lat != null && req.requester_lng != null
+        ? calculateMatchScore({
+            originDistanceKm: originDist,
+            bearingDiffDeg: bearingDiff,
+            destDistanceKm: null,
+            crossTrackKm: crossTrack,
+            alongTrackKm: alongTrack,
+            totalRouteKm: totalRoute,
+            maxRadiusKm: 2.0,
+          })
+        : 90;
+
+      return {
+        ...req,
+        matchScore: score,
+        detourKm: crossTrack,
+        alongTrackKm: alongTrack,
+        isInPath,
+      };
+    })
+    .sort((a, b) => b.matchScore - a.matchScore);
+
   const totalFare = post.total_fare || 0;
   const maxRiders = post.max_riders || 2;
   const splitFare = Math.round(totalFare / (maxRiders + 1));
@@ -75,7 +159,7 @@ export const HostBroadcastOverlay: React.FC<HostBroadcastOverlayProps> = ({
           </span>
           {pendingRequests.length > 0 && (
             <span className="text-[11px] font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
-              Tap Accept to Match
+              Ranked by Accuracy
             </span>
           )}
         </div>
@@ -93,21 +177,36 @@ export const HostBroadcastOverlay: React.FC<HostBroadcastOverlayProps> = ({
                 className="p-3 bg-white border border-teal-waters/20 rounded-xl shadow-xs flex items-center justify-between gap-2"
               >
                 <div className="min-w-0">
-                  <div className="font-bold text-xs text-gray-900 truncate">{req.requester_name}</div>
-                  <div className="text-[11px] text-gray-500">{req.requester_phone}</div>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="font-bold text-xs text-gray-900 truncate">{req.requester_name}</span>
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-[#CAFFA6]/70 text-[#0F2A4A]">
+                      {req.matchScore}%
+                    </span>
+                    {req.isInPath && (
+                      <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">
+                        In Path
+                      </span>
+                    )}
+                    {req.detourKm != null && (
+                      <span className="text-[9px] font-mono font-bold px-2 py-0.5 rounded-full bg-red-50 text-red-700 border border-red-200 shadow-xs">
+                        📍 {req.detourKm < 0.05 ? '0m detour' : `${(req.detourKm * 1000).toFixed(0)}m detour`}
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-[11px] text-gray-500 font-mono mt-0.5">{req.requester_phone}</div>
                 </div>
 
                 <div className="flex items-center gap-1.5 shrink-0">
                   <button
                     onClick={() => onRejectRequest(req.id)}
-                    className="w-10 h-10 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-600 transition-colors flex items-center justify-center cursor-pointer"
+                    className="w-9 h-9 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-600 transition-colors flex items-center justify-center cursor-pointer"
                     title="Decline"
                   >
                     <X className="w-4 h-4" />
                   </button>
                   <button
                     onClick={() => onAcceptRequest(req)}
-                    className="flex items-center gap-1 h-10 px-4 rounded-xl bg-teal-waters hover:bg-logo-navy text-spring-meadow text-xs font-bold shadow-sm transition-all active:scale-[0.98] cursor-pointer"
+                    className="flex items-center gap-1 h-9 px-3 rounded-xl bg-teal-waters hover:bg-logo-navy text-spring-meadow text-xs font-bold shadow-sm transition-all active:scale-[0.98] cursor-pointer"
                   >
                     <Check className="w-4 h-4" />
                     <span>Accept</span>

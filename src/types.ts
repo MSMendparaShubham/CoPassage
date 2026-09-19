@@ -148,12 +148,17 @@ export const BRAND_PALETTE: BrandColor[] = [
 
 // ─── Domain Types (aligned to master spec schema) ───
 
+export type SubscriptionTier = 'free' | 'plus' | 'unlimited';
+
 export interface AuthedUser {
   uid: string;
   name: string;
   phone: string;
   role: string;
   email?: string;
+  subscription_tier?: SubscriptionTier;
+  subscription_started_at?: string | null;
+  subscription_expires_at?: string | null;
   gender?: 'female' | 'male' | 'other' | 'prefer_not_to_say';
   emergencyContactName?: string;
   emergencyContactPhone?: string;
@@ -167,7 +172,34 @@ export interface Profile {
   full_name: string | null;
   role: 'rider' | 'city_staff' | 'help_center' | 'admin' | null;
   zone_id: string | null;
+  subscription_tier?: SubscriptionTier | null;
+  subscription_started_at?: string | null;
+  subscription_expires_at?: string | null;
   created_at: string;
+}
+
+export interface RiderMonthlyUsage {
+  id: string;
+  rider_uid: string;
+  month_key: string;
+  rides_used: number;
+  created_at: string;
+}
+
+export interface UsageIncrementResult {
+  allowed: boolean;
+  rides_used: number;
+  rides_limit: number | null;
+}
+
+export interface SavedFrequentRoute {
+  id: string;
+  label: string; // e.g., "Home", "Work", "University", "Cyber City Tech Park"
+  destination: string;
+  destinationCoords?: { lat: number; lng: number } | null;
+  destLat?: number | null;
+  destLng?: number | null;
+  isBasic?: boolean; // true for Home / Work
 }
 
 export interface RiderPost {
@@ -200,7 +232,13 @@ export interface JoinRequest {
   requester_lat: number | null;
   requester_lng: number | null;
   rider_marked_complete: boolean;
-  status: 'pending' | 'accepted' | 'rejected';
+  status: 'pending' | 'accepted' | 'rejected' | 'cancelled';
+  requester_fee_amount?: number | null;
+  requester_fee_paid_via?: 'razorpay' | 'vault' | null;
+  requester_fee_status?: 'unpaid' | 'paid' | 'refunded' | null;
+  host_fee_amount?: number | null;
+  host_fee_paid_via?: 'razorpay' | 'vault' | null;
+  host_fee_status?: 'unpaid' | 'paid' | 'refunded' | null;
   created_at: string;
 }
 
@@ -246,5 +284,30 @@ export interface SupportTicket {
   subject: string | null;
   description: string | null;
   status: string;
+  created_at: string;
+}
+
+export interface RiderWallet {
+  rider_uid: string;
+  balance: number;
+  updated_at: string;
+}
+
+export type WalletTransactionType =
+  | 'request_fee_debit'
+  | 'accept_fee_debit'
+  | 'reject_refund_credit'
+  | 'razorpay_topup_credit'
+  | 'expiry_refund_credit';
+
+export interface WalletTransaction {
+  id: string;
+  rider_uid: string;
+  amount: number;
+  type: WalletTransactionType;
+  related_post_id?: string | null;
+  related_request_id?: string | null;
+  razorpay_payment_id?: string | null;
+  balance_after: number;
   created_at: string;
 }

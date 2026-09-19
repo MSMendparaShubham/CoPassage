@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { MapPin, Navigation, Search, Loader2, X } from 'lucide-react';
+import { MapPin, Navigation, Loader2, X } from 'lucide-react';
 import { LocationCoordinates } from '../../hooks/useGeolocation';
 
-interface LocationAutocompleteProps {
+export interface LocationAutocompleteProps {
   value: string;
   onChange: (value: string, coords?: LocationCoordinates) => void;
+  onSelect?: (name: string, coords?: LocationCoordinates) => void;
   placeholder?: string;
   label?: string;
   userCoords?: LocationCoordinates;
@@ -12,37 +13,28 @@ interface LocationAutocompleteProps {
   required?: boolean;
 }
 
-// Popular and comprehensive list of Indian cities and transit nodes for instantaneous filtering
-const POPULAR_INDIAN_LOCATIONS = [
-  { name: 'Nadiad', state: 'Gujarat', lat: 22.6916, lng: 72.8634 },
-  { name: 'Nagpur', state: 'Maharashtra', lat: 21.1458, lng: 79.0882 },
-  { name: 'Nashik', state: 'Maharashtra', lat: 19.9975, lng: 73.7898 },
-  { name: 'Navsari', state: 'Gujarat', lat: 20.9467, lng: 72.9520 },
-  { name: 'Nanded', state: 'Maharashtra', lat: 19.1383, lng: 77.3210 },
-  { name: 'New Delhi', state: 'Delhi', lat: 28.6139, lng: 77.2090 },
-  { name: 'Noida', state: 'Uttar Pradesh', lat: 28.5355, lng: 77.3910 },
-  { name: 'Neemuch', state: 'Madhya Pradesh', lat: 24.4720, lng: 74.8720 },
-  { name: 'Nizamabad', state: 'Telangana', lat: 18.6725, lng: 78.0941 },
-  { name: 'Navi Mumbai', state: 'Maharashtra', lat: 19.0330, lng: 73.0297 },
-  { name: 'Ahmedabad', state: 'Gujarat', lat: 23.0225, lng: 72.5714 },
-  { name: 'Surat', state: 'Gujarat', lat: 21.1702, lng: 72.8311 },
-  { name: 'Vadodara', state: 'Gujarat', lat: 22.3072, lng: 73.1812 },
-  { name: 'Rajkot', state: 'Gujarat', lat: 22.3039, lng: 70.8022 },
-  { name: 'Mumbai Central', state: 'Maharashtra', lat: 18.9696, lng: 72.8193 },
-  { name: 'Bandra Kurla Complex (BKC)', state: 'Mumbai', lat: 19.0664, lng: 72.8687 },
-  { name: 'Andheri Metro Station', state: 'Mumbai', lat: 19.1197, lng: 72.8468 },
-  { name: 'Indiranagar Metro', state: 'Bengaluru', lat: 12.9784, lng: 77.6408 },
-  { name: 'Koramangala 5th Block', state: 'Bengaluru', lat: 12.9352, lng: 77.6245 },
-  { name: 'Cyber City Tech Park', state: 'Gurugram', lat: 28.4950, lng: 77.0895 },
-  { name: 'Hitec City Metro', state: 'Hyderabad', lat: 17.4474, lng: 78.3762 },
-  { name: 'Pune Railway Station', state: 'Maharashtra', lat: 18.5284, lng: 73.8744 },
-  { name: 'Jaipur Railway Station', state: 'Rajasthan', lat: 26.9200, lng: 75.7878 },
-  { name: 'Lucknow Charbagh', state: 'Uttar Pradesh', lat: 26.8322, lng: 80.9234 },
+export interface LocationSuggestion {
+  label: string;
+  lat: number;
+  lng: number;
+  fullAddress: string;
+}
+
+// Curated regional hubs for instant prefix resolution (e.g. 'nad' -> 'Nadiad', 'nag' -> 'Nagpur', 'bkc' -> 'BKC')
+const POPULAR_DESTINATIONS: LocationSuggestion[] = [
+  { label: 'Nadiad', lat: 22.68955, lng: 72.87136, fullAddress: 'Nadiad, Kheda, Gujarat, India' },
+  { label: 'Nagpur', lat: 21.14580, lng: 79.08820, fullAddress: 'Nagpur, Maharashtra, India' },
+  { label: 'BKC', lat: 19.06772, lng: 72.86485, fullAddress: 'Bandra Kurla Complex, Mumbai, Maharashtra, India' },
+  { label: 'Anand Junction', lat: 22.56450, lng: 72.92890, fullAddress: 'Anand, Gujarat, India' },
+  { label: 'CHARUSAT Campus', lat: 22.59960, lng: 72.82050, fullAddress: 'CHARUSAT, Changa, Gujarat, India' },
+  { label: 'Ahmedabad (SG Highway)', lat: 23.03000, lng: 72.51000, fullAddress: 'Ahmedabad, Gujarat, India' },
+  { label: 'Vadodara Station', lat: 22.31000, lng: 73.18000, fullAddress: 'Vadodara, Gujarat, India' },
 ];
 
 export const LocationAutocomplete: React.FC<LocationAutocompleteProps> = ({
   value,
   onChange,
+  onSelect,
   placeholder = 'Type city, station, or landmark...',
   label,
   userCoords,
@@ -50,16 +42,18 @@ export const LocationAutocomplete: React.FC<LocationAutocompleteProps> = ({
   required = false,
 }) => {
   const [query, setQuery] = useState(value);
-  const [suggestions, setSuggestions] = useState<Array<{ name: string; state?: string; lat?: number; lng?: number }>>([]);
+  const [suggestions, setSuggestions] = useState<LocationSuggestion[]>([]);
   const [isOpen, setIsOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     setQuery(value);
   }, [value]);
 
-  // Close dropdown on click outside
+  // Close dropdown on outside click
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
@@ -70,70 +64,98 @@ export const LocationAutocomplete: React.FC<LocationAutocompleteProps> = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Handle Input Change with instant local search + debounced Nominatim API
   const handleInputChange = (text: string) => {
     setQuery(text);
     onChange(text);
 
-    if (text.trim().length < 1) {
+    if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+
+    const trimmed = text.trim();
+    if (trimmed.length < 2) {
       setSuggestions([]);
       setIsOpen(false);
+      setIsLoading(false);
       return;
     }
 
-    const lower = text.toLowerCase().trim();
-    // 1. Instant local matching (e.g. "nad" matches "Nadiad", "nag" matches "Nagpur")
-    const localMatches = POPULAR_INDIAN_LOCATIONS.filter(
-      (loc) => loc.name.toLowerCase().includes(lower) || loc.state.toLowerCase().includes(lower)
+    // Instant local prefix matching (e.g. 'nad' -> 'Nadiad', 'nag' -> 'Nagpur')
+    const localMatches = POPULAR_DESTINATIONS.filter((d) =>
+      d.label.toLowerCase().includes(trimmed.toLowerCase())
     );
 
-    setSuggestions(localMatches);
-    setIsOpen(true);
-
-    // 2. Debounced OSM Nominatim search for broader places
-    if (text.trim().length >= 3) {
-      setIsLoading(true);
-      const timer = setTimeout(async () => {
-        try {
-          const res = await fetch(
-            `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(
-              text
-            )}&countrycodes=in&limit=6`
-          );
-          if (res.ok) {
-            const data = await res.json();
-            const remoteMatches = data.map((item: any) => ({
-              name: item.display_name.split(',')[0],
-              state: item.display_name.split(',').slice(1, 3).join(',').trim(),
-              lat: parseFloat(item.lat),
-              lng: parseFloat(item.lon),
-            }));
-
-            // Merge local and remote matches without duplicates
-            const combined = [...localMatches];
-            remoteMatches.forEach((rm: any) => {
-              if (!combined.some((c) => c.name.toLowerCase() === rm.name.toLowerCase())) {
-                combined.push(rm);
-              }
-            });
-
-            setSuggestions(combined);
-          }
-        } catch (err) {
-          console.warn('Location search error:', err);
-        } finally {
-          setIsLoading(false);
-        }
-      }, 350);
-
-      return () => clearTimeout(timer);
+    if (localMatches.length > 0) {
+      setSuggestions(localMatches);
+      setIsOpen(true);
     }
+
+    setIsLoading(true);
+
+    debounceTimer.current = setTimeout(async () => {
+      try {
+        const controller = new AbortController();
+        abortControllerRef.current = controller;
+
+        // Nominatim search request with namedetails=1 and addressdetails=1 per spec
+        const nominatimUrl = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(
+          trimmed
+        )}&format=json&limit=5&namedetails=1&addressdetails=1`;
+
+        const res = await fetch(nominatimUrl, {
+          signal: controller.signal,
+          headers: {
+            'User-Agent': 'CoPassage-App/1.0 (contact: info@copassage.org)',
+          },
+        });
+
+        if (!res.ok) throw new Error(`Nominatim error: ${res.status}`);
+        const data = await res.json();
+
+        if (Array.isArray(data)) {
+          // Parsing the response: Use namedetails.name as primary label with clean fallbacks
+          const apiSuggestions: LocationSuggestion[] = data.map((place: any) => ({
+            label: place.namedetails?.name || place.name || place.display_name.split(',')[0].trim(),
+            lat: parseFloat(place.lat),
+            lng: parseFloat(place.lon),
+            // keep display_name available internally if needed for disambiguation,
+            // but NEVER render it as the visible suggestion text
+            fullAddress: place.display_name,
+          }));
+
+          // Merge local prefix matches with API suggestions without duplicates
+          const seen = new Set<string>();
+          const merged: LocationSuggestion[] = [];
+
+          [...localMatches, ...apiSuggestions].forEach((item) => {
+            const norm = item.label.toLowerCase();
+            if (!seen.has(norm)) {
+              seen.add(norm);
+              merged.push(item);
+            }
+          });
+
+          setSuggestions(merged.slice(0, 6));
+          setIsOpen(merged.length > 0);
+        }
+      } catch (err: any) {
+        if (err.name !== 'AbortError') {
+          console.warn('LocationAutocomplete Nominatim fetch notice:', err);
+        }
+      } finally {
+        setIsLoading(false);
+      }
+    }, 300);
   };
 
-  const handleSelect = (item: { name: string; state?: string; lat?: number; lng?: number }) => {
-    const displayName = item.state ? `${item.name}, ${item.state}` : item.name;
-    setQuery(displayName);
-    onChange(displayName, item.lat && item.lng ? { lat: item.lat, lng: item.lng } : undefined);
+  const handleSelect = (item: LocationSuggestion) => {
+    // Show ONLY label in input and store lat/lng coordinates internally
+    setQuery(item.label);
+    onChange(item.label, { lat: item.lat, lng: item.lng });
+    onSelect?.(item.label, { lat: item.lat, lng: item.lng });
+    setSuggestions([]);
     setIsOpen(false);
   };
 
@@ -142,6 +164,7 @@ export const LocationAutocomplete: React.FC<LocationAutocompleteProps> = ({
       const display = 'My Current Location (GPS)';
       setQuery(display);
       onChange(display, userCoords);
+      onSelect?.(display, userCoords);
       setIsOpen(false);
     }
   };
@@ -161,7 +184,7 @@ export const LocationAutocomplete: React.FC<LocationAutocompleteProps> = ({
           value={query}
           onChange={(e) => handleInputChange(e.target.value)}
           onFocus={() => {
-            if (query.trim().length > 0) setIsOpen(true);
+            if (suggestions.length > 0) setIsOpen(true);
           }}
           placeholder={placeholder}
           autoFocus={autoFocus}
@@ -169,7 +192,7 @@ export const LocationAutocomplete: React.FC<LocationAutocompleteProps> = ({
           className="w-full pl-10 pr-24 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-teal-waters focus:bg-white transition-all"
         />
 
-        {/* Action icons right side */}
+        {/* Action icons — right side */}
         <div className="absolute right-2.5 top-2.5 flex items-center gap-1">
           {isLoading && <Loader2 className="w-4 h-4 text-teal-waters animate-spin" />}
 
@@ -202,12 +225,12 @@ export const LocationAutocomplete: React.FC<LocationAutocompleteProps> = ({
         </div>
       </div>
 
-      {/* Autocomplete Dropdown */}
+      {/* Autocomplete Dropdown — Shows ONLY clean place name labels */}
       {isOpen && suggestions.length > 0 && (
         <div className="absolute left-0 right-0 top-full mt-1.5 z-50 bg-white rounded-2xl shadow-2xl border border-teal-waters/20 max-h-60 overflow-y-auto animate-fade-in divide-y divide-gray-100">
           {suggestions.map((item, idx) => (
             <button
-              key={`${item.name}-${idx}`}
+              key={`${item.label}-${item.lat}-${idx}`}
               type="button"
               onClick={() => handleSelect(item)}
               className="w-full px-4 py-2.5 text-left hover:bg-[#F7F9E1] flex items-center justify-between transition-colors group cursor-pointer"
@@ -216,13 +239,11 @@ export const LocationAutocomplete: React.FC<LocationAutocompleteProps> = ({
                 <div className="w-7 h-7 rounded-lg bg-teal-waters/10 group-hover:bg-teal-waters group-hover:text-white flex items-center justify-center text-teal-waters transition-colors shrink-0">
                   <MapPin className="w-3.5 h-3.5" />
                 </div>
+                {/* Shows ONLY clean place name label — NEVER full address string */}
                 <div className="truncate">
-                  <span className="text-xs font-black text-gray-900 group-hover:text-teal-waters block">
-                    {item.name}
+                  <span className="text-xs font-black text-gray-900 group-hover:text-teal-waters block truncate">
+                    {item.label}
                   </span>
-                  {item.state && (
-                    <span className="text-[11px] text-gray-400 block">{item.state}</span>
-                  )}
                 </div>
               </div>
               <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider shrink-0 ml-2">

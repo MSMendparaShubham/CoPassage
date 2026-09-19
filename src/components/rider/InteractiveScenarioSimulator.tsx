@@ -24,6 +24,16 @@ import {
   Navigation
 } from 'lucide-react';
 import { AuthedUser } from '../../types';
+import { EmbeddedRouteMap } from './EmbeddedRouteMap';
+import {
+  calculateMatchScore,
+  crossTrackDistanceKm,
+  alongTrackDistanceKm,
+  haversineDistanceKm,
+  calculateBearing,
+  getBearingDifference
+} from '../../services/geoUtils';
+import { TIER_RADIUS_KM } from '../../constants';
 
 interface InteractiveScenarioSimulatorProps {
   scenarioId: string;
@@ -44,8 +54,17 @@ export const InteractiveScenarioSimulator: React.FC<InteractiveScenarioSimulator
   // ─── Scenario 2 State (1 Broadcast -> 1 Found) ───
   const [s2Step, setS2Step] = useState<1 | 2 | 3>(1); // 1: Broadcast active, 2: Request received, 3: Accepted & Confirmed
 
-  // ─── Scenario 3 State (Capacity Capped: 3 requests -> 2 seats) ───
-  const [s3RidersJoined, setS3RidersJoined] = useState<{ id: string; name: string; match: number; time: string; status: 'accepted' | 'waitlisted' }[]>([]);
+  // ─── Scenario 3 State (Capacity Capped: 3 requests -> 2 seats, Priority Tie-Breaker) ───
+  const [s3RidersJoined, setS3RidersJoined] = useState<{
+    id: string;
+    name: string;
+    match: number;
+    detourKm?: number;
+    isInPath?: boolean;
+    time: string;
+    status: 'accepted' | 'waitlisted';
+    tier?: string;
+  }[]>([]);
   const [s3Simulating, setS3Simulating] = useState(false);
 
   // ─── Scenario 4 State (Low Rating -> Passenger Declines) ───
@@ -71,32 +90,92 @@ export const InteractiveScenarioSimulator: React.FC<InteractiveScenarioSimulator
     }
   }, [scenarioId]);
 
-  // S3 Interactive Runner
+  // S3 Interactive Runner — dynamically calculates match score from real corridor coordinates
   const runS3Simulation = () => {
     setS3RidersJoined([]);
     setS3Simulating(true);
 
-    // Step 1: Rider B arrives (08:31:04)
+    // Host Route: Charusat Main Gate (22.5996, 72.8205) to Changa Circle (22.6040, 72.8250)
+    const hostOrigin = { lat: 22.5996, lng: 72.8205 };
+    const hostDest = { lat: 22.6040, lng: 72.8250 };
+    const totalRoute = haversineDistanceKm(hostOrigin.lat, hostOrigin.lng, hostDest.lat, hostDest.lng);
+    const hostBearing = calculateBearing(hostOrigin.lat, hostOrigin.lng, hostDest.lat, hostDest.lng);
+
+    // Candidate B (Bhavik Patel — Plus Tier, directly on route path)
+    const bPickup = { lat: 22.6006, lng: 72.8215 };
+    const bDest = { lat: 22.6040, lng: 72.8250 };
+    const bOriginDist = haversineDistanceKm(hostOrigin.lat, hostOrigin.lng, bPickup.lat, bPickup.lng);
+    const bBearingDiff = getBearingDifference(hostBearing, calculateBearing(hostOrigin.lat, hostOrigin.lng, bPickup.lat, bPickup.lng));
+    const bDestDist = haversineDistanceKm(bDest.lat, bDest.lng, hostDest.lat, hostDest.lng);
+    const bCrossTrack = crossTrackDistanceKm(hostOrigin.lat, hostOrigin.lng, hostDest.lat, hostDest.lng, bPickup.lat, bPickup.lng);
+    const bAlongTrack = alongTrackDistanceKm(hostOrigin.lat, hostOrigin.lng, hostDest.lat, hostDest.lng, bPickup.lat, bPickup.lng, bCrossTrack);
+    const bScore = calculateMatchScore({
+      originDistanceKm: bOriginDist,
+      bearingDiffDeg: bBearingDiff,
+      destDistanceKm: bDestDist,
+      crossTrackKm: bCrossTrack,
+      alongTrackKm: bAlongTrack,
+      totalRouteKm: totalRoute,
+      maxRadiusKm: TIER_RADIUS_KM['plus'],
+    });
+
+    // Candidate C (Chirag Joshi — Unlimited Tier, minor 40m detour)
+    const cPickup = { lat: 22.6015, lng: 72.8228 };
+    const cDest = { lat: 22.6042, lng: 72.8253 };
+    const cOriginDist = haversineDistanceKm(hostOrigin.lat, hostOrigin.lng, cPickup.lat, cPickup.lng);
+    const cBearingDiff = getBearingDifference(hostBearing, calculateBearing(hostOrigin.lat, hostOrigin.lng, cPickup.lat, cPickup.lng));
+    const cDestDist = haversineDistanceKm(cDest.lat, cDest.lng, hostDest.lat, hostDest.lng);
+    const cCrossTrack = crossTrackDistanceKm(hostOrigin.lat, hostOrigin.lng, hostDest.lat, hostDest.lng, cPickup.lat, cPickup.lng);
+    const cAlongTrack = alongTrackDistanceKm(hostOrigin.lat, hostOrigin.lng, hostDest.lat, hostDest.lng, cPickup.lat, cPickup.lng, cCrossTrack);
+    const cScore = calculateMatchScore({
+      originDistanceKm: cOriginDist,
+      bearingDiffDeg: cBearingDiff,
+      destDistanceKm: cDestDist,
+      crossTrackKm: cCrossTrack,
+      alongTrackKm: cAlongTrack,
+      totalRouteKm: totalRoute,
+      maxRadiusKm: TIER_RADIUS_KM['unlimited'],
+    });
+
+    // Candidate D (Divya Mehta — Free Tier, 380m detour to the side)
+    const dPickup = { lat: 22.5982, lng: 72.8235 };
+    const dDest = { lat: 22.6052, lng: 72.8268 };
+    const dOriginDist = haversineDistanceKm(hostOrigin.lat, hostOrigin.lng, dPickup.lat, dPickup.lng);
+    const dBearingDiff = getBearingDifference(hostBearing, calculateBearing(hostOrigin.lat, hostOrigin.lng, dPickup.lat, dPickup.lng));
+    const dDestDist = haversineDistanceKm(dDest.lat, dDest.lng, hostDest.lat, hostDest.lng);
+    const dCrossTrack = crossTrackDistanceKm(hostOrigin.lat, hostOrigin.lng, hostDest.lat, hostDest.lng, dPickup.lat, dPickup.lng);
+    const dAlongTrack = alongTrackDistanceKm(hostOrigin.lat, hostOrigin.lng, hostDest.lat, hostDest.lng, dPickup.lat, dPickup.lng, dCrossTrack);
+    const dScore = calculateMatchScore({
+      originDistanceKm: dOriginDist,
+      bearingDiffDeg: dBearingDiff,
+      destDistanceKm: dDestDist,
+      crossTrackKm: dCrossTrack,
+      alongTrackKm: dAlongTrack,
+      totalRouteKm: totalRoute,
+      maxRadiusKm: TIER_RADIUS_KM['free'],
+    });
+
+    // Step 1: Rider B arrives (08:31:04) - Plus Tier
     setTimeout(() => {
       setS3RidersJoined((prev) => [
         ...prev,
-        { id: 'B', name: 'Bhavik Patel', match: 94, time: '08:31:04', status: 'accepted' },
+        { id: 'B', name: 'Bhavik Patel', tier: 'plus', match: bScore, detourKm: bCrossTrack, isInPath: true, time: '08:31:04', status: 'accepted' },
       ]);
     }, 600);
 
-    // Step 2: Rider C arrives (08:31:09) -> Fills 2nd seat!
+    // Step 2: Rider C arrives (08:31:09) - Unlimited Tier -> Fills 2nd seat!
     setTimeout(() => {
       setS3RidersJoined((prev) => [
         ...prev,
-        { id: 'C', name: 'Chirag Joshi', match: 91, time: '08:31:09', status: 'accepted' },
+        { id: 'C', name: 'Chirag Joshi', tier: 'unlimited', match: cScore, detourKm: cCrossTrack, isInPath: true, time: '08:31:09', status: 'accepted' },
       ]);
     }, 1600);
 
-    // Step 3: Rider D arrives (08:31:16) -> Capacity Full -> Waitlisted!
+    // Step 3: Rider D arrives (08:31:16) - Free Tier -> Capacity Full -> Waitlisted!
     setTimeout(() => {
       setS3RidersJoined((prev) => [
         ...prev,
-        { id: 'D', name: 'Divya Mehta', match: 76, time: '08:31:16', status: 'waitlisted' },
+        { id: 'D', name: 'Divya Mehta', tier: 'free', match: dScore, detourKm: dCrossTrack, isInPath: false, time: '08:31:16', status: 'waitlisted' },
       ]);
       setS3Simulating(false);
     }, 2800);
@@ -394,33 +473,20 @@ export const InteractiveScenarioSimulator: React.FC<InteractiveScenarioSimulator
                   <div><strong>Pickup Point:</strong> CHARUSAT Main Gate (Security PIN: #4829).</div>
                 </div>
 
-                {/* Google Maps Turn-by-Turn Route Box */}
-                <div className="p-3.5 bg-white rounded-xl border border-emerald-300 space-y-2.5">
-                  <div className="flex items-center justify-between text-xs font-black text-[#0F2A4A]">
-                    <span className="flex items-center gap-1.5">
-                      <Navigation className="w-3.5 h-3.5 text-emerald-600 fill-current" />
-                      <span>Google Maps Live Turn-by-Turn Route</span>
-                    </span>
-                    <span className="text-[10px] bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full font-mono">
-                      250m • 2 mins
-                    </span>
-                  </div>
-
-                  <div className="text-[11px] text-gray-600 space-y-1 bg-[#F7F9E1] p-2.5 rounded-lg font-mono">
-                    <div><strong>Host Origin (Auto):</strong> 22.5996, 72.8205</div>
-                    <div><strong>Co-Rider Destination:</strong> 22.6025, 72.8235 (Bhavik Patel)</div>
-                  </div>
-
-                  <a
-                    href="https://www.google.com/maps/dir/?api=1&origin=22.5996,72.8205&destination=22.6025,72.8235&travelmode=driving"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="w-full py-3 px-4 bg-[#0F2A4A] hover:bg-[#1a3d64] text-[#CAFFA6] font-black text-xs rounded-xl shadow-xs flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-95"
-                  >
-                    <Compass className="w-4 h-4 animate-spin-slow" />
-                    <span>🧭 Open Google Maps Navigation to Bhavik's Pickup Point</span>
-                    <ExternalLink className="w-3.5 h-3.5" />
-                  </a>
+                {/* Live Google Maps Turn-by-Turn Route */}
+                <div className="pt-2">
+                  <EmbeddedRouteMap
+                    originLat={22.59820}
+                    originLng={72.81880}
+                    destLat={22.60280}
+                    destLng={72.82135}
+                    isHost={true}
+                    partnerName="Bhavik Patel"
+                    pickupUserName="Bhavik Patel"
+                    originLabel="Parking Lot for Cars"
+                    destLabel="Ohm Hostel"
+                    googleMapsDirectionsUrl="https://www.google.com/maps/dir/?api=1&origin=Parking+Lot+for+Cars,+Charusat&destination=Ohm+Hostel,+Changa&travelmode=driving"
+                  />
                 </div>
               </div>
             )}
@@ -514,7 +580,7 @@ export const InteractiveScenarioSimulator: React.FC<InteractiveScenarioSimulator
                   {s3RidersJoined.length >= 1 ? s3RidersJoined[0].name.split(' ')[0] : 'Open'}
                 </span>
                 <span className="text-[9px] font-mono block">
-                  {s3RidersJoined.length >= 1 ? '✅ Accepted (94%)' : 'Waiting...'}
+                  {s3RidersJoined.length >= 1 ? `✅ Accepted (${s3RidersJoined[0].match}%)` : 'Waiting...'}
                 </span>
               </div>
 
@@ -530,7 +596,7 @@ export const InteractiveScenarioSimulator: React.FC<InteractiveScenarioSimulator
                   {s3RidersJoined.length >= 2 ? s3RidersJoined[1].name.split(' ')[0] : 'Open'}
                 </span>
                 <span className="text-[9px] font-mono block">
-                  {s3RidersJoined.length >= 2 ? '✅ Accepted (91%)' : 'Waiting...'}
+                  {s3RidersJoined.length >= 2 ? `✅ Accepted (${s3RidersJoined[1].match}%)` : 'Waiting...'}
                 </span>
               </div>
             </div>
@@ -573,11 +639,27 @@ export const InteractiveScenarioSimulator: React.FC<InteractiveScenarioSimulator
                         {r.id}
                       </span>
                       <div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <span className="font-black text-sm text-[#0F2A4A]">{r.name}</span>
-                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#F7F9E1] text-[#0F2A4A]">
+                          {r.tier && (
+                            <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-md border ${
+                              r.tier === 'unlimited'
+                                ? 'bg-amber-100 text-amber-900 border-amber-300'
+                                : r.tier === 'plus'
+                                ? 'bg-blue-100 text-blue-900 border-blue-300'
+                                : 'bg-gray-100 text-gray-700 border-gray-200'
+                            }`}>
+                              {r.tier === 'unlimited' ? '★ Unlimited' : r.tier === 'plus' ? '⚡ Plus' : 'Free'}
+                            </span>
+                          )}
+                          <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-[#CAFFA6]/70 text-[#0F2A4A] border border-[#0F2A4A]/10">
                             {r.match}% match
                           </span>
+                          {r.detourKm != null && (
+                            <span className="text-[9px] font-mono font-bold px-2.5 py-0.5 rounded-full bg-red-50 text-red-700 border border-red-200 shadow-xs">
+                              📍 {r.detourKm < 0.05 ? '0m detour' : `${(r.detourKm * 1000).toFixed(0)}m detour`}
+                            </span>
+                          )}
                           <span className="text-[10px] text-gray-500 font-mono">Time: {r.time}</span>
                         </div>
                         <div className="text-xs text-gray-500 mt-0.5">
@@ -619,34 +701,20 @@ export const InteractiveScenarioSimulator: React.FC<InteractiveScenarioSimulator
                   </span>
                 </div>
 
-                {/* Google Maps Turn-by-Turn Navigation Card */}
-                <div className="p-3.5 bg-white rounded-2xl border-2 border-emerald-300 space-y-2.5">
-                  <div className="flex items-center justify-between text-xs font-black text-[#0F2A4A]">
-                    <span className="flex items-center gap-1.5">
-                      <Navigation className="w-3.5 h-3.5 text-emerald-600 fill-current" />
-                      <span>Google Maps Turn-by-Turn Pickup Route</span>
-                    </span>
-                    <span className="text-[10px] bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full font-mono">
-                      2 Stops • 4 mins
-                    </span>
-                  </div>
-
-                  <div className="text-[11px] text-gray-600 space-y-1 bg-[#F7F9E1] p-2.5 rounded-lg font-mono">
-                    <div><strong>Host Origin (Auto):</strong> 22.5996, 72.8205</div>
-                    <div><strong>Stop 1 (Bhavik):</strong> 22.6025, 72.8235 (CHARUSAT Gate 2)</div>
-                    <div><strong>Stop 2 (Chirag):</strong> 22.6040, 72.8250 (Changa Circle)</div>
-                  </div>
-
-                  <a
-                    href="https://www.google.com/maps/dir/?api=1&origin=22.5996,72.8205&destination=22.6040,72.8250&waypoints=22.6025,72.8235&travelmode=driving"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="w-full py-3 px-4 bg-[#0F2A4A] hover:bg-[#1a3d64] text-[#CAFFA6] font-black text-xs rounded-xl shadow-xs flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-95"
-                  >
-                    <Compass className="w-4 h-4 animate-spin-slow" />
-                    <span>🧭 Open Google Maps Route to Co-Riders' Pickup Stops</span>
-                    <ExternalLink className="w-3.5 h-3.5" />
-                  </a>
+                {/* Live Google Maps Turn-by-Turn Route */}
+                <div className="pt-2">
+                  <EmbeddedRouteMap
+                    originLat={22.5996}
+                    originLng={72.8205}
+                    destLat={22.6040}
+                    destLng={72.8250}
+                    isHost={true}
+                    partnerName="Bhavik & Chirag"
+                    pickupUserName="Bhavik & Chirag"
+                    originLabel="Charusat Main Gate"
+                    destLabel="Changa Circle"
+                    googleMapsDirectionsUrl="https://www.google.com/maps/dir/?api=1&origin=22.5996,72.8205&destination=22.6040,72.8250&waypoints=22.6025,72.8235&travelmode=driving"
+                  />
                 </div>
               </div>
             )}
@@ -981,33 +1049,20 @@ export const InteractiveScenarioSimulator: React.FC<InteractiveScenarioSimulator
                 </div>
               </div>
 
-              {/* Google Maps Turn-by-Turn Navigation Box */}
-              <div className="p-3.5 bg-white rounded-2xl border-2 border-purple-300 space-y-2.5">
-                <div className="flex items-center justify-between text-xs font-black text-[#0F2A4A]">
-                  <span className="flex items-center gap-1.5">
-                    <Navigation className="w-3.5 h-3.5 text-purple-600 fill-current" />
-                    <span>Google Maps Route to Priya's Pickup Location</span>
-                  </span>
-                  <span className="text-[10px] bg-purple-100 text-purple-800 px-2 py-0.5 rounded-full font-mono">
-                    300m • 2 mins
-                  </span>
-                </div>
-
-                <div className="text-[11px] text-gray-600 space-y-1 bg-[#F7F9E1] p-2.5 rounded-lg font-mono">
-                  <div><strong>Host Origin (Ananya's Auto):</strong> 22.5996, 72.8205</div>
-                  <div><strong>Destination (Priya's Pickup):</strong> 22.6030, 72.8240 (CHARUSAT North Gate)</div>
-                </div>
-
-                <a
-                  href="https://www.google.com/maps/dir/?api=1&origin=22.5996,72.8205&destination=22.6030,72.8240&travelmode=driving"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="w-full py-3 px-4 bg-[#0F2A4A] hover:bg-[#1a3d64] text-[#CAFFA6] font-black text-xs rounded-xl shadow-xs flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-95"
-                >
-                  <Compass className="w-4 h-4 animate-spin-slow" />
-                  <span>🧭 Open Google Maps Navigation to Priya's Pickup Point</span>
-                  <ExternalLink className="w-3.5 h-3.5" />
-                </a>
+              {/* Live Google Maps Turn-by-Turn Route */}
+              <div className="pt-2">
+                <EmbeddedRouteMap
+                  originLat={22.60055}
+                  originLng={72.82175}
+                  destLat={22.6030}
+                  destLng={72.8240}
+                  isHost={true}
+                  partnerName="Priya Patel"
+                  pickupUserName="Priya Patel"
+                  originLabel="Ananya's Auto"
+                  destLabel="North Gate"
+                  googleMapsDirectionsUrl="https://www.google.com/maps/dir/?api=1&origin=22.60055,72.82175&destination=22.6030,72.8240&travelmode=driving"
+                />
               </div>
             </div>
           </div>

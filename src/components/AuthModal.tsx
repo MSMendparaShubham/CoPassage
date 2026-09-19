@@ -21,6 +21,16 @@ import {
   signInWithPhoneNumber,
   ConfirmationResult
 } from 'firebase/auth';
+import {
+  checkUserRegistration,
+  checkEmailRegistration,
+  registerNewUser,
+  FIREBASE_TEST_ACCOUNTS,
+  TestAccount,
+  normalizePhone,
+  initializeTestAccountState
+} from '../services/authRegistration';
+export type { TestAccount };
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -34,64 +44,6 @@ declare global {
     recaptchaVerifier?: RecaptchaVerifier;
   }
 }
-
-export interface TestAccount {
-  phone: string;
-  displayPhone: string;
-  otp: string;
-  name: string;
-  role: string;
-  tag: string;
-  avatar: string;
-}
-
-export const FIREBASE_TEST_ACCOUNTS: TestAccount[] = [
-  {
-    phone: '9875101054',
-    displayPhone: '+91 98751 01054',
-    otp: '000001',
-    name: 'Shubham Mendpara',
-    role: 'Rider Host (Has an Auto)',
-    tag: '🛺 Host Commuter',
-    avatar: 'SM',
-  },
-  {
-    phone: '8849350719',
-    displayPhone: '+91 88493 50719',
-    otp: '404040',
-    name: 'Nisarg Makwana',
-    role: 'Commuter Seeker (Needs Auto)',
-    tag: '🔍 Seeker Commuter',
-    avatar: 'NM',
-  },
-  {
-    phone: '9824597605',
-    displayPhone: '+91 98245 97605',
-    otp: '123456',
-    name: 'Priya Sharma',
-    role: 'Safe Share Female Commuter',
-    tag: '🛡️ Safe Share',
-    avatar: 'PS',
-  },
-  {
-    phone: '9974144230',
-    displayPhone: '+91 99741 44230',
-    otp: '979797',
-    name: 'Rohan Patel',
-    role: 'Daily Corridor Commuter',
-    tag: '📍 Daily Rider',
-    avatar: 'RP',
-  },
-  {
-    phone: '7572867636',
-    displayPhone: '+91 75728 67636',
-    otp: '101010',
-    name: 'Ananya Kotadiya',
-    role: 'Verified Campus Commuter',
-    tag: '🎓 Campus Rider',
-    avatar: 'AK',
-  },
-];
 
 export const AuthModal: React.FC<AuthModalProps> = ({
   isOpen,
@@ -203,7 +155,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   // ─── Send OTP ───
   const handleSendOtp = async (e: React.FormEvent) => {
     e.preventDefault();
-    const cleanPhone = phone.replace(/\D/g, '');
+    const cleanPhone = normalizePhone(phone);
     if (cleanPhone.length !== 10) {
       setErrorMessage('Please enter a valid 10-digit mobile number');
       return;
@@ -216,6 +168,47 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     setOtp(['', '', '', '', '', '']);
     setErrorMessage(null);
     setIsLoading(true);
+
+    // ─── Check Registration Status ───
+    const regCheck = await checkUserRegistration(cleanPhone);
+
+    if (mode === 'signin') {
+      if (!regCheck.isRegistered) {
+        setIsLoading(false);
+        setErrorMessage(
+          `This mobile number (+91 ${cleanPhone}) is not registered with CoPassage. Please create an account first.`
+        );
+        return;
+      }
+    } else if (mode === 'signup') {
+      if (regCheck.isRegistered) {
+        setIsLoading(false);
+        setErrorMessage(
+          `An account with mobile number +91 ${cleanPhone} is already registered. Please sign in instead.`
+        );
+        return;
+      }
+
+      // ─── Enforce "One Mail One Time" ───
+      const trimmedEmail = email.trim();
+      if (trimmedEmail) {
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(trimmedEmail)) {
+          setIsLoading(false);
+          setErrorMessage('Please enter a valid email address.');
+          return;
+        }
+
+        const emailCheck = await checkEmailRegistration(trimmedEmail, cleanPhone);
+        if (emailCheck.isRegistered) {
+          setIsLoading(false);
+          setErrorMessage(
+            `The email address (${trimmedEmail}) is already registered to another account. Each email can only be used once.`
+          );
+          return;
+        }
+      }
+    }
 
     const hasFirebaseKey = Boolean(import.meta.env.VITE_FIREBASE_API_KEY);
 
@@ -301,24 +294,78 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     setIsLoading(true);
     setErrorMessage(null);
 
+    const cleanPhone = normalizePhone(phone);
+
+    // Guard: Re-verify registration in signin mode
+    const regCheck = await checkUserRegistration(cleanPhone);
+    if (mode === 'signin' && !regCheck.isRegistered) {
+      setIsLoading(false);
+      if (auth.currentUser) {
+        try { await auth.signOut(); } catch { /* ignore */ }
+      }
+      setErrorMessage('Access denied: This mobile number is not registered. Please create an account first.');
+      return;
+    }
+
     const hasFirebaseKey = Boolean(import.meta.env.VITE_FIREBASE_API_KEY);
 
     if (hasFirebaseKey && confirmationResultRef.current) {
       try {
         const result = await confirmationResultRef.current.confirm(code);
+
+        let resolvedName = fullName.trim() || 'CoPassage Rider';
+
+        if (mode === 'signup') {
+          const trimmedEmail = email.trim();
+          if (trimmedEmail) {
+            const emailCheck = await checkEmailRegistration(trimmedEmail, cleanPhone);
+            if (emailCheck.isRegistered) {
+              setIsLoading(false);
+              if (auth.currentUser) {
+                try { await auth.signOut(); } catch { /* ignore */ }
+              }
+              setErrorMessage(
+                `The email address (${trimmedEmail}) is already registered to another account. Each email can only be used once.`
+              );
+              return;
+            }
+          }
+
+          const newProfile = await registerNewUser({
+            uid: result.user.uid,
+            phone: cleanPhone,
+            fullName: fullName.trim(),
+            email: trimmedEmail || undefined,
+            role: 'rider',
+          });
+          resolvedName = newProfile.fullName;
+        } else {
+          resolvedName = regCheck.user?.fullName || result.user.displayName || fullName.trim() || 'CoPassage Rider';
+        }
+
         setIsLoading(false);
         setSuccessMessage(
           mode === 'signup'
-            ? `Welcome to CoPassage, ${fullName.trim() || 'Commuter'}! Account created.`
-            : 'Logged in successfully! Welcome back.'
+            ? `Welcome to CoPassage, ${resolvedName}! Account created.`
+            : `Logged in successfully! Welcome back, ${resolvedName}.`
         );
+
+        const matchedTest = FIREBASE_TEST_ACCOUNTS.find(
+          (acc) => normalizePhone(acc.phone) === cleanPhone
+        );
+        const resolvedTier = matchedTest?.subscription_tier || regCheck.user?.subscription_tier || 'free';
+        if (matchedTest) {
+          initializeTestAccountState(matchedTest.phone, result.user.uid);
+        }
+
         setTimeout(() => {
           if (onSuccess) {
             onSuccess({
               uid: result.user.uid,
-              name: fullName.trim() || result.user.displayName || 'CoPassage Commuter',
-              phone: phone || result.user.phoneNumber || '',
-              role: 'commuter',
+              name: resolvedName,
+              phone: `+91 ${cleanPhone}`,
+              role: 'rider',
+              subscription_tier: resolvedTier,
             });
           }
           handleClose();
@@ -329,21 +376,60 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         setErrorMessage('Invalid OTP. Please check the code received on your phone.');
       }
     } else {
-      // Demo fallback
-      setTimeout(() => {
+      // Demo / offline fallback
+      setTimeout(async () => {
+        let userUid = auth.currentUser?.uid || `rider_${cleanPhone}`;
+        let resolvedName = fullName.trim() || 'CoPassage Rider';
+
+        if (mode === 'signup') {
+          const trimmedEmail = email.trim();
+          if (trimmedEmail) {
+            const emailCheck = await checkEmailRegistration(trimmedEmail, cleanPhone);
+            if (emailCheck.isRegistered) {
+              setIsLoading(false);
+              setErrorMessage(
+                `The email address (${trimmedEmail}) is already registered. Each email can only be used once.`
+              );
+              return;
+            }
+          }
+
+          const newProfile = await registerNewUser({
+            uid: userUid,
+            phone: cleanPhone,
+            fullName: fullName.trim() || 'CoPassage Rider',
+            email: trimmedEmail || undefined,
+            role: 'rider',
+          });
+          resolvedName = newProfile.fullName;
+        } else {
+          resolvedName = regCheck.user?.fullName || 'CoPassage Rider';
+          userUid = regCheck.user?.uid || userUid;
+        }
+
         setIsLoading(false);
         setSuccessMessage(
           mode === 'signup'
-            ? `Welcome to CoPassage, ${fullName.trim() || 'Commuter'}! Account created.`
-            : 'Logged in successfully! Welcome back.'
+            ? `Welcome to CoPassage, ${resolvedName}! Account created.`
+            : `Logged in successfully! Welcome back, ${resolvedName}.`
         );
+
+        const matchedTest = FIREBASE_TEST_ACCOUNTS.find(
+          (acc) => normalizePhone(acc.phone) === cleanPhone
+        );
+        const resolvedTier = matchedTest?.subscription_tier || regCheck.user?.subscription_tier || 'free';
+        if (matchedTest) {
+          initializeTestAccountState(matchedTest.phone, userUid);
+        }
+
         setTimeout(() => {
           if (onSuccess) {
             onSuccess({
-              uid: auth.currentUser?.uid || 'demo_rider_uid',
-              name: fullName.trim() || 'Rohan Sharma',
-              phone: phone || '+91 98765 43210',
-              role: 'commuter',
+              uid: userUid,
+              name: resolvedName,
+              phone: `+91 ${cleanPhone}`,
+              role: 'rider',
+              subscription_tier: resolvedTier,
             });
           }
           handleClose();
@@ -364,13 +450,21 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     }
   };
 
-  const handleInstantTestLogin = (account: TestAccount) => {
+  const handleInstantTestLogin = async (account: TestAccount) => {
+    const regCheck = await checkUserRegistration(account.phone);
+    if (!regCheck.isRegistered) {
+      setErrorMessage('Test account not found or not registered.');
+      return;
+    }
+    const resolvedUid = regCheck.user?.uid || `firebase_test_${account.phone}`;
+    initializeTestAccountState(account.phone, resolvedUid);
     if (onSuccess) {
       onSuccess({
-        uid: `firebase_test_${account.phone}`,
+        uid: resolvedUid,
         name: account.name,
         phone: account.displayPhone,
-        role: 'commuter',
+        role: 'rider',
+        subscription_tier: account.subscription_tier,
       });
     }
     handleClose();
@@ -452,9 +546,35 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               </div>
             )}
             {errorMessage && (
-              <div className="mb-3 bg-rose-50 border-2 border-rose-500 rounded-2xl p-3 flex items-start gap-2 text-xs font-bold text-rose-700">
-                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
-                <span>{errorMessage}</span>
+              <div className="mb-3 bg-rose-50 border-2 border-rose-500 rounded-2xl p-3.5 text-xs font-bold text-rose-700 animate-fade-in shadow-xs">
+                <div className="flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                  <span className="leading-snug flex-1">{errorMessage}</span>
+                </div>
+
+                {/* Inline Quick Switch to Sign Up */}
+                {mode === 'signin' && (errorMessage.includes('not registered') || errorMessage.includes('create an account')) && (
+                  <button
+                    type="button"
+                    onClick={() => switchMode('signup')}
+                    className="mt-2.5 w-full py-2 px-3 bg-[#0B3059] hover:bg-[#153e6d] text-[#CAFFA6] rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-xs active:scale-[0.98]"
+                  >
+                    <span>Create Account for +91 {normalizePhone(phone) || 'Mobile'}</span>
+                    <ArrowRight className="w-3.5 h-3.5 stroke-[2.5]" />
+                  </button>
+                )}
+
+                {/* Inline Quick Switch to Sign In */}
+                {mode === 'signup' && (errorMessage.includes('already exists') || errorMessage.includes('already registered')) && (
+                  <button
+                    type="button"
+                    onClick={() => switchMode('signin')}
+                    className="mt-2.5 w-full py-2 px-3 bg-[#0B3059] hover:bg-[#153e6d] text-[#CAFFA6] rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-xs active:scale-[0.98]"
+                  >
+                    <span>Switch to Sign In</span>
+                    <ArrowRight className="w-3.5 h-3.5 stroke-[2.5]" />
+                  </button>
+                )}
               </div>
             )}
 
@@ -505,7 +625,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 {mode === 'signup' && (
                   <div>
                     <label className="block text-xs font-black text-[#0B3059] mb-1">
-                      Email Address <span className="text-[10px] text-gray-400 font-medium">(Optional)</span>
+                      Email Address <span className="text-[10px] text-gray-500 font-bold">(1 Email per Account)</span>
                     </label>
                     <div className="relative flex items-center">
                       <Mail className="w-4 h-4 text-[#0B3059] absolute left-3.5" />
@@ -513,10 +633,16 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                         type="email"
                         placeholder="your.email@university.edu"
                         value={email}
-                        onChange={(e) => setEmail(e.target.value)}
+                        onChange={(e) => {
+                          setEmail(e.target.value);
+                          if (errorMessage?.includes('email')) setErrorMessage(null);
+                        }}
                         className="w-full pl-10 pr-4 py-2.5 bg-white border-2 border-[#0B3059] rounded-xl text-xs sm:text-sm font-bold text-[#0B3059] placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-[#A4E2FB]"
                       />
                     </div>
+                    <span className="text-[10px] text-gray-500 font-bold block mt-1 ml-0.5">
+                      🔒 Unique email rule: Each email address can only be used once.
+                    </span>
                   </div>
                 )}
 
@@ -704,6 +830,26 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                             <span className="text-[9px] font-black px-1.5 py-0.2 bg-white/10 text-[#CAFFA6] rounded-md">
                               {account.tag}
                             </span>
+                            {account.subscription_tier === 'unlimited' && (
+                              <span className="text-[9px] font-black px-1.5 py-0.5 bg-amber-400/20 text-amber-300 border border-amber-400/30 rounded-md">
+                                PRO TIER
+                              </span>
+                            )}
+                            {account.subscription_tier === 'plus' && (
+                              <span className="text-[9px] font-black px-1.5 py-0.5 bg-sky-400/20 text-sky-300 border border-sky-400/30 rounded-md">
+                                PLUS TIER
+                              </span>
+                            )}
+                            {account.subscription_tier === 'free' && (
+                              <span className="text-[9px] font-black px-1.5 py-0.5 bg-white/10 text-gray-300 border border-white/10 rounded-md">
+                                NORMAL
+                              </span>
+                            )}
+                            {account.wallet_balance > 0 && (
+                              <span className="text-[9px] font-black px-1.5 py-0.5 bg-emerald-500/25 text-emerald-300 border border-emerald-400/40 rounded-md flex items-center gap-0.5">
+                                <span>₹1 Lakh Vault</span>
+                              </span>
+                            )}
                           </div>
                           <span className="font-mono text-xs font-bold text-gray-300 block mt-0.5">
                             {account.displayPhone}

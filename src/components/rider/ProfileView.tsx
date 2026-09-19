@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import {
   Phone,
   ShieldCheck,
@@ -13,12 +13,24 @@ import {
   User,
   Heart,
   Sparkles,
-  AlertTriangle
+  AlertTriangle,
+  Wallet,
+  CreditCard,
+  ArrowUpRight,
+  ArrowDownLeft,
+  RefreshCcw,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 import { auth } from '../../firebase';
-import { AuthedUser, RiderRating } from '../../types';
+import { AuthedUser, RiderRating, WalletTransaction } from '../../types';
 import { supabase } from '../../supabase';
 import { EditProfileModal } from './EditProfileModal';
+import { PlansSection } from '../pricing/PlansSection';
+import { VaultTopUpModal } from './VaultTopUpModal';
+import { getWalletBalance, getWalletTransactions } from '../../services/vaultService';
+import { getRiderMonthlyUsage } from '../../services/subscriptionUsage';
+import { TIER_RADIUS_KM } from '../../constants';
 
 interface ProfileViewProps {
   user: AuthedUser;
@@ -33,8 +45,62 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
 }) => {
   const [currentUserData, setCurrentUserData] = useState<AuthedUser>(user);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [showPlansModal, setShowPlansModal] = useState(false);
   const [ratings, setRatings] = useState<RiderRating[]>([]);
   const [loadingRatings, setLoadingRatings] = useState(true);
+  const [monthlyUsage, setMonthlyUsage] = useState<{ ridesUsed: number; ridesLimit: number | null }>({
+    ridesUsed: 0,
+    ridesLimit: 5,
+  });
+
+  // CoPassage Vault State
+  const [vaultBalance, setVaultBalance] = useState<number>(0);
+  const [vaultTransactions, setVaultTransactions] = useState<WalletTransaction[]>([]);
+  const [isVaultLoading, setIsVaultLoading] = useState<boolean>(true);
+  const [isTopUpOpen, setIsTopUpOpen] = useState<boolean>(false);
+  const [showLedger, setShowLedger] = useState<boolean>(false);
+
+  const loadVaultData = useCallback(async () => {
+    if (!user.uid) return;
+    setIsVaultLoading(true);
+    try {
+      const [bal, txs] = await Promise.all([
+        getWalletBalance(user.uid),
+        getWalletTransactions(user.uid),
+      ]);
+      setVaultBalance(bal);
+      setVaultTransactions(txs);
+    } catch (err) {
+      console.warn('Error loading vault data:', err);
+    } finally {
+      setIsVaultLoading(false);
+    }
+  }, [user.uid]);
+
+  useEffect(() => {
+    loadVaultData();
+  }, [loadVaultData]);
+
+  // Fetch current monthly ride usage (refreshes on tab focus so it stays live)
+  useEffect(() => {
+    const fetchUsage = async () => {
+      const usage = await getRiderMonthlyUsage(
+        currentUserData.uid,
+        currentUserData.subscription_tier || 'free'
+      );
+      setMonthlyUsage(usage);
+    };
+    fetchUsage();
+
+    const handleFocus = () => fetchUsage();
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') fetchUsage();
+    });
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [currentUserData.uid, currentUserData.subscription_tier]);
 
   // Load saved local profile metadata if available
   useEffect(() => {
@@ -233,6 +299,222 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
           )}
         </div>
 
+        {/* Membership & Plans Card */}
+        <div className="bg-white/95 backdrop-blur-md p-5 rounded-3xl shadow-sm border-2 border-[#0F2A4A]/10 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <div className={`w-10 h-10 rounded-2xl border-2 border-[#0F2A4A] flex items-center justify-center text-[#0F2A4A] shadow-xs ${
+                currentUserData.subscription_tier === 'unlimited'
+                  ? 'bg-amber-100'
+                  : currentUserData.subscription_tier === 'plus'
+                  ? 'bg-blue-100'
+                  : 'bg-[#CAFFA6]'
+              }`}>
+                <Sparkles className="w-5 h-5" />
+              </div>
+              <div>
+                <span className="text-[10px] font-black uppercase tracking-wider text-gray-400 block">
+                  Membership & Quota
+                </span>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-sm font-black text-[#0F2A4A]">
+                    {currentUserData.subscription_tier === 'unlimited'
+                      ? 'CoPassage Unlimited'
+                      : currentUserData.subscription_tier === 'plus'
+                      ? 'Commuter Plus Plan'
+                      : 'Free Community Plan'}
+                  </span>
+                  <span className="text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded-md bg-[#CAFFA6] text-[#0F2A4A] border border-[#0F2A4A]/20">
+                    {TIER_RADIUS_KM[currentUserData.subscription_tier || 'free']} km Radar
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <button
+              onClick={() => setShowPlansModal(true)}
+              className="px-3.5 py-1.5 bg-[#0F2A4A] hover:bg-[#163a63] text-[#CAFFA6] rounded-xl text-xs font-black shadow-xs cursor-pointer active:scale-95 transition-all"
+            >
+              {currentUserData.subscription_tier === 'unlimited' ? 'Manage' : 'Upgrade'}
+            </button>
+          </div>
+
+          {/* Monthly Ride Quota Progress Bar */}
+          <div className="bg-[#F7F9E1] p-3 rounded-2xl border border-[#0F2A4A]/10 space-y-1.5">
+            <div className="flex items-center justify-between text-xs font-bold text-gray-700">
+              <span>Monthly Ride Usage</span>
+              <span className="font-mono font-black text-[#0F2A4A]">
+                {monthlyUsage.ridesLimit !== null
+                  ? `${monthlyUsage.ridesUsed} / ${monthlyUsage.ridesLimit} rides used`
+                  : `${monthlyUsage.ridesUsed} rides taken (Unlimited)`}
+              </span>
+            </div>
+
+            {monthlyUsage.ridesLimit !== null && (
+              <div className="w-full h-2.5 bg-gray-200 rounded-full overflow-hidden">
+                <div
+                  className={`h-full transition-all duration-500 rounded-full ${
+                    monthlyUsage.ridesUsed >= monthlyUsage.ridesLimit
+                      ? 'bg-red-500'
+                      : monthlyUsage.ridesUsed >= monthlyUsage.ridesLimit * 0.8
+                      ? 'bg-amber-500'
+                      : 'bg-emerald-500'
+                  }`}
+                  style={{
+                    width: `${Math.min(100, Math.round((monthlyUsage.ridesUsed / monthlyUsage.ridesLimit) * 100))}%`,
+                  }}
+                />
+              </div>
+            )}
+          </div>
+
+          <p className="text-xs text-gray-500 leading-relaxed">
+            {currentUserData.subscription_tier === 'unlimited'
+              ? 'Unlimited shared rides, 2.0 km matching radius, ₹0 platform fee, and advanced route preferences active.'
+              : currentUserData.subscription_tier === 'plus'
+              ? '20 shared rides/mo, 1.5 km matching radius, flat ₹10 CoPassage fee, and saved frequent routes active.'
+              : 'Free plan: 5 rides/mo, 1.0 km matching radius, and convenience fee of max(₹15, 10%). Upgrade to Plus for 20 rides and priority matching.'}
+          </p>
+        </div>
+
+        {/* CoPassage Vault (In-App Wallet) Card */}
+        <div className="bg-white/95 backdrop-blur-md p-5 rounded-3xl shadow-sm border-2 border-teal-600/20 space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <div className="w-10 h-10 rounded-2xl bg-teal-50 border-2 border-teal-700/20 flex items-center justify-center text-teal-800 shadow-xs">
+                <Wallet className="w-5 h-5" />
+              </div>
+              <div>
+                <span className="text-[10px] font-black uppercase tracking-wider text-gray-400 block">
+                  In-App Wallet
+                </span>
+                <div className="flex items-center gap-1.5">
+                  <h4 className="text-sm font-black text-[#0F2A4A]">CoPassage Vault</h4>
+                  <span className="text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded-md bg-teal-100 text-teal-900 border border-teal-300">
+                    Instant Pay & Refunds
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <button
+              onClick={() => setIsTopUpOpen(true)}
+              className="px-3.5 py-1.5 bg-[#0F2A4A] hover:bg-[#163a63] text-[#CAFFA6] rounded-xl text-xs font-black shadow-xs cursor-pointer active:scale-95 transition-all flex items-center gap-1.5"
+            >
+              <CreditCard className="w-3.5 h-3.5" />
+              <span>Top Up</span>
+            </button>
+          </div>
+
+          {/* Balance Display */}
+          <div className="p-4 bg-gradient-to-br from-teal-50/70 to-emerald-50/50 rounded-2xl border border-teal-600/15 flex items-center justify-between">
+            <div>
+              <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider block">
+                Available Vault Balance
+              </span>
+              <div className="flex items-baseline gap-1 mt-0.5">
+                <span className="text-3xl font-black text-[#0F2A4A] font-mono">
+                  ₹{vaultBalance.toFixed(2)}
+                </span>
+              </div>
+              <p className="text-[10px] text-gray-500 mt-1">
+                Zero payment friction • Automatically refunded on declined requests
+              </p>
+            </div>
+            <button
+              onClick={loadVaultData}
+              disabled={isVaultLoading}
+              className="p-2 text-gray-400 hover:text-teal-700 rounded-xl hover:bg-white/60 transition-colors"
+              title="Refresh Balance"
+            >
+              <RefreshCcw className={`w-4 h-4 ${isVaultLoading ? 'animate-spin text-teal-600' : ''}`} />
+            </button>
+          </div>
+
+          {/* Transaction Ledger Accordion */}
+          <div className="pt-1 border-t border-gray-100">
+            <button
+              onClick={() => setShowLedger((prev) => !prev)}
+              className="w-full flex items-center justify-between py-1 text-xs font-bold text-gray-700 hover:text-[#0F2A4A] transition-colors cursor-pointer"
+            >
+              <span className="flex items-center gap-1.5">
+                <span>Recent Wallet Activity</span>
+                <span className="text-[10px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded-full font-mono">
+                  {vaultTransactions.length}
+                </span>
+              </span>
+              {showLedger ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
+            </button>
+
+            {showLedger && (
+              <div className="mt-2.5 space-y-2 max-h-64 overflow-y-auto pr-1">
+                {vaultTransactions.length === 0 ? (
+                  <div className="py-4 text-center text-xs text-gray-400 bg-gray-50/70 rounded-xl border border-dashed border-gray-200">
+                    No transactions recorded yet. Top up your Vault to pay platform fees effortlessly.
+                  </div>
+                ) : (
+                  vaultTransactions.map((tx) => {
+                    const isCredit = tx.type === 'topup' || tx.type.startsWith('refund');
+                    return (
+                      <div
+                        key={tx.id}
+                        className="p-2.5 bg-gray-50/80 hover:bg-gray-50 border border-gray-100 rounded-xl flex items-center justify-between text-xs"
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
+                            isCredit ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'
+                          }`}>
+                            {isCredit ? (
+                              tx.type.startsWith('refund') ? (
+                                <RefreshCcw className="w-3.5 h-3.5" />
+                              ) : (
+                                <ArrowDownLeft className="w-3.5 h-3.5" />
+                              )
+                            ) : (
+                              <ArrowUpRight className="w-3.5 h-3.5" />
+                            )}
+                          </div>
+                          <div className="min-w-0">
+                            <span className="font-bold text-gray-900 block truncate">
+                              {tx.type === 'topup'
+                                ? 'Vault Top-Up'
+                                : tx.type === 'refund_rejection'
+                                ? 'Refund: Request Declined'
+                                : tx.type === 'refund_cancellation'
+                                ? 'Refund: Request Cancelled'
+                                : tx.type === 'request_fee'
+                                ? 'Fee: Join Request'
+                                : tx.type === 'accept_fee'
+                                ? 'Fee: Host Acceptance'
+                                : tx.type}
+                            </span>
+                            <span className="text-[10px] text-gray-400 font-mono block">
+                              {new Date(tx.created_at).toLocaleDateString(undefined, {
+                                month: 'short',
+                                day: 'numeric',
+                                hour: '2-digit',
+                                minute: '2-digit',
+                              })}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="text-right shrink-0">
+                          <span className={`font-mono font-black text-xs ${
+                            isCredit ? 'text-emerald-600' : 'text-gray-900'
+                          }`}>
+                            {isCredit ? '+' : '-'}₹{tx.amount.toFixed(2)}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+
         {/* Community Reputation Card */}
         <div className="bg-white/95 backdrop-blur-md p-5 rounded-3xl shadow-sm border-2 border-[#0F2A4A]/10">
           <div className="flex items-center justify-between mb-3">
@@ -330,6 +612,34 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
         onClose={() => setIsEditModalOpen(false)}
         user={currentUserData}
         onSave={handleProfileUpdated}
+      />
+
+      {/* Explore Plans Modal */}
+      {showPlansModal && (
+        <PlansSection
+          isModal
+          currentUser={currentUserData}
+          onCloseModal={() => setShowPlansModal(false)}
+          onViewProfile={() => setShowPlansModal(false)}
+          onRequireAuth={() => {
+            setShowPlansModal(false);
+            onSignOut();
+          }}
+          onSelectPlan={() => {
+            // Keep open or close upon selecting
+          }}
+        />
+      )}
+
+      {/* Vault Top-Up Modal */}
+      <VaultTopUpModal
+        isOpen={isTopUpOpen}
+        onClose={() => setIsTopUpOpen(false)}
+        user={currentUserData}
+        onTopUpSuccess={(newBal) => {
+          setVaultBalance(newBal);
+          loadVaultData();
+        }}
       />
     </>
   );

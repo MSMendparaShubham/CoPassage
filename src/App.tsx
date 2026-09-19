@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import { BrowserRouter, Routes, Route, Navigate, Link } from 'react-router-dom';
+import { APIProvider } from '@vis.gl/react-google-maps';
 import { VideoPlayer } from './components/VideoPlayer';
 import { IntroVideoOverlay } from './components/IntroVideoOverlay';
 import { DemoScenariosModal } from './components/DemoScenariosModal';
@@ -6,6 +8,22 @@ import { AuthModal } from './components/AuthModal';
 import { RiderHome } from './components/rider/RiderHome';
 import { AuthedUser } from './types';
 import { auth } from './firebase';
+import { PlansSection, PlanTier } from './components/pricing/PlansSection';
+import { openRazorpayCheckout } from './services/razorpay';
+import { checkUserRegistration, normalizePhone, initializeTestAccountState, seedAllTestAccounts } from './services/authRegistration';
+import { Navbar } from './components/layout/Navbar';
+import { Footer } from './components/layout/Footer';
+import { ScrollToTop } from './components/layout/ScrollToTop';
+import { AboutPage } from './pages/AboutPage';
+import { CareersPage } from './pages/CareersPage';
+import { PressPage } from './pages/PressPage';
+import { FairFareCodePage } from './pages/FairFareCodePage';
+import { ContactPage } from './pages/ContactPage';
+import { TermsPage } from './pages/TermsPage';
+import { PrivacyPage } from './pages/PrivacyPage';
+import { SafetyCharterPage } from './pages/SafetyCharterPage';
+import { FareGuidelinesPage } from './pages/FareGuidelinesPage';
+import { GrievanceOfficerPage } from './pages/GrievanceOfficerPage';
 import {
   Sparkles,
   ShieldCheck,
@@ -38,17 +56,46 @@ export default function App() {
   const [authMode, setAuthMode] = useState<'signin' | 'signup'>('signin');
   const [currentUser, setCurrentUser] = useState<AuthedUser | null>(null);
   const [viewMode, setViewMode] = useState<'landing' | 'rider'>('landing');
+  const [initialRiderTab, setInitialRiderTab] = useState<'match' | 'activity' | 'profile'>('match');
   const [authLoading, setAuthLoading] = useState<boolean>(true);
 
   // Sync Firebase Auth state — first callback clears the loading splash
   useEffect(() => {
-    const unsubscribe = auth.onAuthStateChanged((fbUser) => {
+    seedAllTestAccounts();
+    const unsubscribe = auth.onAuthStateChanged(async (fbUser) => {
       if (fbUser) {
+        const cleanPhone = normalizePhone(fbUser.phoneNumber || '');
+        if (cleanPhone.length === 10) {
+          const check = await checkUserRegistration(cleanPhone);
+          if (!check.isRegistered) {
+            console.warn('Unregistered user session detected in Firebase. Signing out.', cleanPhone);
+            try {
+              await auth.signOut();
+            } catch { /* ignore */ }
+            setCurrentUser(null);
+            setAuthLoading(false);
+            return;
+          }
+
+          initializeTestAccountState(cleanPhone, fbUser.uid);
+
+          setCurrentUser({
+            uid: fbUser.uid,
+            name: check.user?.fullName || fbUser.displayName || 'CoPassage Rider',
+            phone: fbUser.phoneNumber || `+91 ${cleanPhone}`,
+            role: check.user?.role || 'rider',
+            subscription_tier: check.user?.subscription_tier || 'free',
+          });
+          setAuthLoading(false);
+          return;
+        }
+
         setCurrentUser({
           uid: fbUser.uid,
           name: fbUser.displayName || 'CoPassage Rider',
           phone: fbUser.phoneNumber || '',
           role: 'rider',
+          subscription_tier: 'free',
         });
       } else {
         setCurrentUser(null);
@@ -171,7 +218,10 @@ export default function App() {
 
   if (currentUser && viewMode === 'rider') {
     return (
-      <>
+      <APIProvider
+        apiKey={import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string}
+        libraries={['places', 'routes']}
+      >
         <DemoScenariosModal
           isOpen={showDemoModal}
           onClose={() => setShowDemoModal(false)}
@@ -191,142 +241,112 @@ export default function App() {
           onClearScenario={() => setScenarioMode(null)}
           onSwitchScenario={(id) => setScenarioMode(id)}
           onUpdateUser={(updated) => setCurrentUser(updated)}
+          initialTab={initialRiderTab}
         />
-      </>
+      </APIProvider>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[#F7F9E1] text-[#204654] font-['Plus_Jakarta_Sans',sans-serif] selection:bg-[#CAFFA6] selection:text-[#0F2A4A]">
-      {/* Intro Video Overlay (Plays at start with skip button in right below corner) */}
-      {showIntroVideo && (
-        <IntroVideoOverlay onComplete={() => setShowIntroVideo(false)} />
-      )}
+    <BrowserRouter>
+      <ScrollToTop />
+      <div className="min-h-screen bg-[#F7F9E1] text-[#204654] font-['Plus_Jakarta_Sans',sans-serif] selection:bg-[#CAFFA6] selection:text-[#0F2A4A]">
+        {/* Intro Video Overlay (Plays at start with skip button in right below corner) */}
+        {showIntroVideo && (
+          <IntroVideoOverlay onComplete={() => setShowIntroVideo(false)} />
+        )}
 
-      {/* Demo Scenarios Modal */}
-      <DemoScenariosModal
-        isOpen={showDemoModal}
-        onClose={() => setShowDemoModal(false)}
-        onLaunchScenario={handleLaunchScenario}
-      />
+        {/* Demo Scenarios Modal */}
+        <DemoScenariosModal
+          isOpen={showDemoModal}
+          onClose={() => setShowDemoModal(false)}
+          onLaunchScenario={handleLaunchScenario}
+        />
 
-      {/* Auth Modal (Sign In / Sign Up) */}
-      <AuthModal
-        isOpen={isAuthOpen}
-        onClose={() => setIsAuthOpen(false)}
-        initialMode={authMode}
-        onSuccess={(user) => {
-          setCurrentUser(user);
-          setViewMode('rider');
-        }}
-      />
+        {/* Auth Modal (Sign In / Sign Up) */}
+        <AuthModal
+          isOpen={isAuthOpen}
+          onClose={() => {
+            setIsAuthOpen(false);
+            try {
+              sessionStorage.removeItem('copassage_pending_subscription');
+            } catch { /* ignore */ }
+          }}
+          initialMode={authMode}
+          onSuccess={async (user) => {
+            setCurrentUser(user);
+            setViewMode('rider');
 
-      {/* Top Sticky Brand Navigation */}
-      <header className="w-full bg-[#F7F9E1]/95 border-b-2 border-[#0F2A4A]/15 sticky top-0 z-50 backdrop-blur-md">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-4">
-          {/* Brand Wordmark */}
-          <div className="flex items-center gap-2.5 shrink-0">
-            <img
-              src="/CoPassageLOGO2-removebg-preview.png"
-              alt="CoPassage Logo"
-              className="w-10 h-10 object-contain drop-shadow-xs"
-            />
-            <div className="flex flex-col">
-              <div className="text-lg font-extrabold tracking-tight flex items-center">
-                <span className="text-[#4A9FE0]">CO</span>
-                <span className="text-[#0F2A4A] tracking-wider">PASSAGE</span>
-              </div>
-              <span className="text-[9px] uppercase font-bold text-[#204654] -mt-1 tracking-widest">
-                Dynamic Auto Sharing
-              </span>
-            </div>
-          </div>
+            // Check if user initiated a subscription plan purchase prior to authenticating
+            try {
+              const pendingPlanStr = sessionStorage.getItem('copassage_pending_subscription');
+              if (pendingPlanStr) {
+                sessionStorage.removeItem('copassage_pending_subscription');
+                const plan = JSON.parse(pendingPlanStr) as PlanTier;
 
-          {/* Nav Links */}
-          <div className="hidden xl:flex items-center gap-6 text-xs font-extrabold text-[#204654] shrink-0">
-            <a href="#explainer" className="hover:text-[#0F2A4A] transition-colors">
-              How It Works
-            </a>
-            <a href="#calculator" className="hover:text-[#0F2A4A] transition-colors flex items-center gap-1">
-              <Calculator className="w-3.5 h-3.5 text-[#0F2A4A]" />
-              <span>Fare Split Calculator</span>
-            </a>
-            <a href="#corridors" className="hover:text-[#0F2A4A] transition-colors">
-              Live Corridors
-            </a>
-            <a href="#faq" className="hover:text-[#0F2A4A] transition-colors">
-              FAQ
-            </a>
-          </div>
+                if (plan && plan.id && plan.amountInr > 0) {
+                  const cleanPhone = normalizePhone(user.phone || '');
+                  const check = await checkUserRegistration(cleanPhone);
+                  if (check.isRegistered) {
+                    setTimeout(async () => {
+                      await openRazorpayCheckout({
+                        planId: plan.id,
+                        planName: plan.name,
+                        amountInr: plan.amountInr,
+                        user: {
+                          uid: user.uid || check.user?.uid,
+                          name: check.user?.fullName || user.name,
+                          email: check.user?.email || user.email,
+                          phone: user.phone,
+                        },
+                        onSuccess: (res) => {
+                          console.log('Subscription completed post-auth verification:', res.razorpay_payment_id);
+                        },
+                        onFailure: (err) => {
+                          console.warn('Subscription checkout dismissed or failed:', err);
+                        },
+                      });
+                    }, 400);
+                  }
+                }
+              }
+            } catch (err) {
+              console.warn('Error handling post-auth pending subscription:', err);
+            }
+          }}
+        />
 
-          {/* Action CTAs */}
-          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-            {/* Demo Button (Left of Intro Video) */}
-            <button
-              id="demo-scenarios-button"
-              onClick={() => setShowDemoModal(true)}
-              className="bg-[#CAFFA6] hover:bg-[#b8f78f] text-[#0F2A4A] text-xs font-black px-3.5 py-1.5 rounded-full border-2 border-[#0F2A4A] shadow-[0_2px_0_#0F2A4A] active:translate-y-0.5 flex items-center gap-1.5 transition-all cursor-pointer"
-              title="Explore interactive live demo scenarios"
-            >
-              <Zap className="w-3.5 h-3.5 fill-[#0F2A4A] text-[#0F2A4A]" />
-              <span>Demo</span>
-            </button>
+        <Routes>
+          {/* 10 Footer Pages */}
+          <Route path="/about" element={<AboutPage />} />
+          <Route path="/careers" element={<CareersPage />} />
+          <Route path="/press" element={<PressPage />} />
+          <Route path="/fair-fare-code" element={<FairFareCodePage />} />
+          <Route path="/contact" element={<ContactPage />} />
+          <Route path="/terms" element={<TermsPage />} />
+          <Route path="/privacy" element={<PrivacyPage />} />
+          <Route path="/safety-charter" element={<SafetyCharterPage />} />
+          <Route path="/fare-guidelines" element={<FareGuidelinesPage />} />
+          <Route path="/grievance-officer" element={<GrievanceOfficerPage />} />
 
-            <button
-              onClick={() => setShowIntroVideo(true)}
-              className="bg-white hover:bg-white/80 text-[#0F2A4A] text-xs font-extrabold px-3 py-1.5 rounded-full border-2 border-[#0F2A4A] shadow-[0_2px_0_#0F2A4A] active:translate-y-0.5 flex items-center gap-1.5 transition-all cursor-pointer"
-              title="Watch introduction video"
-            >
-              <Play className="w-3 h-3 fill-current text-[#0F2A4A]" />
-              <span className="hidden sm:inline">Intro Video</span>
-            </button>
-
-            {currentUser ? (
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setViewMode('rider')}
-                  className="bg-[#CAFFA6] hover:bg-[#b8f78f] text-[#0F2A4A] text-xs font-black px-4 py-1.5 rounded-full border-2 border-[#0F2A4A] shadow-[0_2px_0_#0F2A4A] flex items-center gap-1.5 cursor-pointer active:translate-y-0.5 transition-all"
-                  title="Open Rider Coordination"
-                >
-                  <span>Open Rider App</span>
-                  <ArrowRight className="w-3.5 h-3.5 stroke-[2.5]" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
+          {/* Landing Page Route */}
+          <Route
+            path="/"
+            element={
+              <>
+                <Navbar
+                  currentUser={currentUser}
+                  onOpenAuth={openAuth}
+                  onOpenDemo={() => setShowDemoModal(true)}
+                  onOpenIntroVideo={() => setShowIntroVideo(true)}
+                  onOpenRiderApp={() => setViewMode('rider')}
+                  onSignOut={() => {
                     auth.signOut();
                     setCurrentUser(null);
                   }}
-                  className="p-1.5 bg-white border-2 border-[#0F2A4A] rounded-full hover:bg-red-50 text-red-600 transition-colors cursor-pointer"
-                  title="Sign Out"
-                >
-                  <LogOut className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            ) : (
-              <>
-                <button
-                  onClick={() => openAuth('signin')}
-                  className="hidden sm:flex text-xs font-extrabold text-[#0F2A4A] hover:underline px-2 cursor-pointer"
-                >
-                  Sign In
-                </button>
-                <button
-                  onClick={() => openAuth('signup')}
-                  className="bg-[#CAFFA6] hover:bg-[#b8f78f] text-[#0F2A4A] text-xs font-extrabold px-4 py-1.5 rounded-full border-2 border-[#0F2A4A] shadow-[0_3px_0_#0F2A4A] hover:shadow-xs transition-all active:translate-y-0.5 flex items-center gap-1.5 cursor-pointer"
-                >
-                  <span>Split Fare</span>
-                  <span className="text-xs">⚡</span>
-                </button>
-              </>
-            )}
-          </div>
-        </div>
-      </header>
+                />
 
-      {/* Main Container */}
-      <main className="w-full">
+                <main className="w-full">
         {/* ================= HERO SECTION ================= */}
         <section id="explainer" className="relative w-full pt-8 pb-14 px-4 sm:px-6 lg:px-8 max-w-6xl mx-auto flex flex-col items-center text-center">
           {/* Contrast-Safe AAA Badge */}
@@ -665,6 +685,34 @@ export default function App() {
           </div>
         </section>
 
+        {/* ================= EXPLORE PLANS / PRICING SECTION ================= */}
+        <PlansSection
+          currentUser={currentUser}
+          onRequireAuth={(mode, plan) => {
+            if (plan) {
+              try {
+                sessionStorage.setItem('copassage_pending_subscription', JSON.stringify(plan));
+              } catch {
+                // ignore
+              }
+            }
+            openAuth(mode);
+          }}
+          onSelectPlan={(_planId) => {
+            if (!currentUser) {
+              openAuth('signup');
+            }
+          }}
+          onViewProfile={() => {
+            if (currentUser) {
+              setInitialRiderTab('profile');
+              setViewMode('rider');
+            } else {
+              openAuth('signin');
+            }
+          }}
+        />
+
         {/* ================= WE ARE HIRING SECTION ================= */}
         <section id="careers" className="w-full py-16 px-4 sm:px-6 max-w-5xl mx-auto">
           <div className="bg-gradient-to-br from-[#0F2A4A] via-[#163a63] to-[#204654] rounded-3xl p-8 sm:p-12 border-3 border-[#0F2A4A] shadow-[0_8px_0_#0F2A4A] text-white relative overflow-hidden">
@@ -754,190 +802,15 @@ export default function App() {
         </section>
       </main>
 
-      {/* Corporate Company Footer */}
-      <footer className="w-full bg-[#0F2A4A] text-[#F7F9E1] pt-16 pb-12 border-t-4 border-[#CAFFA6]">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6">
-          {/* Main 4-Column Corporate Layout */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-10 pb-12 border-b border-white/10">
-            {/* Column 1 & 2: Brand Identity & Mission */}
-            <div className="lg:col-span-2 flex flex-col items-start gap-4">
-              <div className="flex items-center gap-3">
-                <img
-                  src="/CoPassageLOGO2-removebg-preview.png"
-                  alt="CoPassage Logo"
-                  className="w-11 h-11 object-contain drop-shadow-md brightness-105"
-                />
-                <div className="flex flex-col">
-                  <div className="text-xl font-black tracking-tight flex items-center">
-                    <span className="text-[#4A9FE0]">CO</span>
-                    <span className="text-white tracking-wider">PASSAGE</span>
-                  </div>
-                  <span className="text-[10px] uppercase font-bold text-[#CAFFA6] tracking-widest -mt-0.5">
-                    CoPassage Technologies Pvt. Ltd.
-                  </span>
-                </div>
-              </div>
+              <Footer />
+            </>
+          }
+        />
 
-              <p className="text-xs text-[#A9E0F1] leading-relaxed max-w-sm font-medium">
-                Pioneering dynamic peer-to-peer auto-rickshaw fare sharing across high-density urban transit corridors. Helping commuters save up to 67% on every ride while ensuring auto drivers receive 100% of their full fare.
-              </p>
-
-              {/* Safety & Trust Badges */}
-              <div className="flex flex-wrap items-center gap-2 pt-2">
-                <span className="bg-white/10 border border-[#CAFFA6]/30 text-[#CAFFA6] text-[10px] font-bold px-3 py-1 rounded-full flex items-center gap-1.5">
-                  <ShieldCheck className="w-3.5 h-3.5 text-[#CAFFA6]" />
-                  <span>Max 3 Riders Safety Cap</span>
-                </span>
-                <span className="bg-white/10 border border-white/20 text-white/90 text-[10px] font-bold px-3 py-1 rounded-full flex items-center gap-1.5">
-                  <Zap className="w-3.5 h-3.5 text-[#CAFFA6]" />
-                  <span>Instant UPI Settlement</span>
-                </span>
-              </div>
-            </div>
-
-            {/* Column 3: Solutions & Platform */}
-            <div className="flex flex-col gap-3">
-              <h4 className="text-xs font-black uppercase tracking-wider text-[#CAFFA6]">
-                Product & Solutions
-              </h4>
-              <ul className="flex flex-col gap-2 text-xs text-gray-300 font-medium">
-                <li>
-                  <a href="#explainer" className="hover:text-white transition-colors">
-                    How CoPassage Works
-                  </a>
-                </li>
-                <li>
-                  <a href="#calculator" className="hover:text-white transition-colors">
-                    Fare Split Calculator
-                  </a>
-                </li>
-                <li>
-                  <a href="#corridors" className="hover:text-white transition-colors">
-                    Live Corridor Map
-                  </a>
-                </li>
-                <li>
-                  <a href="#faq" className="hover:text-white transition-colors">
-                    Safety & Seating Policy
-                  </a>
-                </li>
-                <li>
-                  <span className="inline-flex items-center gap-1 text-[10px] bg-[#CAFFA6]/20 text-[#CAFFA6] px-2 py-0.5 rounded-full font-bold">
-                    New
-                  </span>{' '}
-                  <span className="text-gray-400">Peer Coordination App</span>
-                </li>
-              </ul>
-            </div>
-
-            {/* Column 4: Company & Fleet */}
-            <div className="flex flex-col gap-3">
-              <h4 className="text-xs font-black uppercase tracking-wider text-[#CAFFA6]">
-                Company
-              </h4>
-              <ul className="flex flex-col gap-2 text-xs text-gray-300 font-medium">
-                <li>
-                  <a href="#about" className="hover:text-white transition-colors">
-                    About CoPassage
-                  </a>
-                </li>
-                <li>
-                  <a
-                    href="https://docs.google.com/forms/d/e/1FAIpQLSfSQAF_tL5c5lXM7jVG2VBDC27VMEVuQHMTQ8OAs7pycn1vFw/viewform"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="hover:text-white transition-colors flex items-center gap-1.5"
-                  >
-                    <span>Careers</span>
-                    <span className="text-[9px] bg-[#4A9FE0] text-white px-1.5 py-0.2 rounded-full font-black">
-                      We&apos;re Hiring
-                    </span>
-                    <ExternalLink className="w-3 h-3 text-[#A9E0F1]" />
-                  </a>
-                </li>
-                <li>
-                  <a href="#press" className="hover:text-white transition-colors">
-                    Press & Media Kit
-                  </a>
-                </li>
-                <li>
-                  <a href="#code" className="hover:text-white transition-colors">
-                    Fair Fare Community Code
-                  </a>
-                </li>
-                <li>
-                  <a href="#contact" className="hover:text-white transition-colors">
-                    Contact Corporate Office
-                  </a>
-                </li>
-              </ul>
-            </div>
-
-            {/* Column 5: Legal & Regulatory */}
-            <div className="flex flex-col gap-3">
-              <h4 className="text-xs font-black uppercase tracking-wider text-[#CAFFA6]">
-                Legal & Governance
-              </h4>
-              <ul className="flex flex-col gap-2 text-xs text-gray-300 font-medium">
-                <li>
-                  <a href="#terms" className="hover:text-white transition-colors">
-                    Terms of Service
-                  </a>
-                </li>
-                <li>
-                  <a href="#privacy" className="hover:text-white transition-colors">
-                    Privacy Policy
-                  </a>
-                </li>
-                <li>
-                  <a href="#safety" className="hover:text-white transition-colors">
-                    Commuter Safety Charter
-                  </a>
-                </li>
-                <li>
-                  <a href="#fare-policy" className="hover:text-white transition-colors">
-                    Peer-to-Peer Fare Guidelines
-                  </a>
-                </li>
-                <li>
-                  <a href="#grievance" className="hover:text-white transition-colors">
-                    Grievance Officer
-                  </a>
-                </li>
-              </ul>
-            </div>
-          </div>
-
-          {/* Bottom Legal Copyright Bar */}
-          <div className="pt-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-gray-400 font-medium">
-            <div className="flex flex-col sm:flex-row items-center gap-2 text-center sm:text-left">
-              <span className="text-white font-bold">
-                © 2026 CoPassage Technologies Private Limited.
-              </span>
-              <span className="hidden sm:inline text-gray-500">•</span>
-              <span>All rights reserved.</span>
-            </div>
-
-            <div className="flex items-center gap-4 text-[11px] text-[#A9E0F1]">
-              <a href="#privacy" className="hover:underline">
-                Privacy
-              </a>
-              <span>•</span>
-              <a href="#terms" className="hover:underline">
-                Terms
-              </a>
-              <span>•</span>
-              <a href="#security" className="hover:underline">
-                Security
-              </a>
-              <span>•</span>
-              <a href="#cookies" className="hover:underline">
-                Cookie Settings
-              </a>
-            </div>
-          </div>
-        </div>
-      </footer>
+        {/* Fallback route: redirect to / */}
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
     </div>
+  </BrowserRouter>
   );
 }

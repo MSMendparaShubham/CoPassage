@@ -1,11 +1,14 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
-import {defineConfig} from 'vite';
+import { defineConfig } from 'vite';
+import { razorpayApiPlugin } from './server/razorpayMiddleware';
 
 export default defineConfig(() => {
   return {
-    plugins: [react(), tailwindcss()],
+    plugins: [react(), tailwindcss(), razorpayApiPlugin()],
+
+
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),

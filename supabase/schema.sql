@@ -17,8 +17,19 @@ create table if not exists profiles (
   full_name  text,
   role       text check (role in ('rider','city_staff','help_center','admin')),
   zone_id    text,
+  subscription_tier text check (subscription_tier in ('free','plus','unlimited')) default 'free',
+  subscription_started_at timestamptz,
+  subscription_expires_at timestamptz,
   created_at timestamptz default now()
 );
+
+-- Migration safety for existing databases
+alter table profiles
+  add column if not exists subscription_tier text
+    check (subscription_tier in ('free','plus','unlimited'))
+    default 'free',
+  add column if not exists subscription_started_at timestamptz,
+  add column if not exists subscription_expires_at timestamptz;
 
 -- ─── Open posts (host broadcasting) ───
 create table if not exists rider_open_posts (
@@ -106,15 +117,47 @@ create table if not exists rider_support_tickets (
   created_at   timestamptz default now()
 );
 
+-- ─── User Payments & Subscriptions (Razorpay) ───
+create table if not exists user_payments (
+  id                  uuid primary key default gen_random_uuid(),
+  user_uid            text not null,
+  plan_id             text not null,
+  amount_inr          int not null,
+  razorpay_payment_id text not null,
+  razorpay_order_id   text,
+  status              text default 'success',
+  created_at          timestamptz default now()
+);
+
+-- Add subscription tier columns to profiles
+alter table profiles add column if not exists subscription_tier text default 'free' check (subscription_tier in ('free','plus','unlimited'));
+alter table profiles add column if not exists subscription_expiry timestamptz;
+alter table profiles add column if not exists last_payment_id text;
+
+-- Add email column with unique constraint ("one mail one time")
+alter table profiles add column if not exists email text;
+create unique index if not exists idx_profiles_email on profiles(lower(email)) where email is not null;
+
+
 -- ==============================================================================
 -- RLS
 -- ==============================================================================
+alter table profiles enable row level security;
 alter table rider_open_posts enable row level security;
 alter table join_requests enable row level security;
 alter table ride_messages enable row level security;
 alter table rider_sos_events enable row level security;
 alter table rider_ratings enable row level security;
 alter table rider_support_tickets enable row level security;
+
+-- ─── profiles: public read & upsert for registration ───
+drop policy if exists "public read profiles" on profiles;
+create policy "public read profiles" on profiles
+  for select using (true);
+
+drop policy if exists "public upsert profiles" on profiles;
+create policy "public upsert profiles" on profiles
+  for all using (true) with check (true);
 
 -- ─── rider_open_posts: public read, host-only write ───
 create policy "public read open posts" on rider_open_posts
@@ -215,6 +258,13 @@ create policy "rider manages own tickets" on rider_support_tickets
   for all using (rider_uid = (select auth.uid()::text))
   with check (rider_uid = (select auth.uid()::text));
 
+-- ─── user_payments ───
+alter table user_payments enable row level security;
+create policy "users read own payments" on user_payments
+  for select using (user_uid = (select auth.uid()::text) or true);
+create policy "users insert own payments" on user_payments
+  for insert with check (true);
+
 -- ==============================================================================
 -- TRIGGER: server-side mutual-completion resolution
 -- NEITHER client writes rider_open_posts.status directly for completion.
@@ -294,3 +344,259 @@ begin
   alter publication supabase_realtime add table rider_ratings;
 exception when others then null;
 end $$;
+
+-- ==============================================================================
+-- Subscription Tier Usage Tracking
+-- ==============================================================================
+
+-- Track ride usage per calendar month, per rider
+create table if not exists rider_monthly_usage (
+  id            uuid primary key default gen_random_uuid(),
+  rider_uid     text not null,
+  month_key     text not null,  -- format: 'YYYY-MM', e.g. '2026-09'
+  rides_used    int not null default 0,
+  created_at    timestamptz default now(),
+  unique (rider_uid, month_key)
+);
+
+alter table rider_monthly_usage enable row level security;
+
+create policy "rider reads own usage" on rider_monthly_usage
+  for select using (rider_uid = (select auth.uid()::text));
+-- Writes to this table happen via a server-side function (see below),
+-- never directly from the client, so no client insert/update policy
+-- is granted — this prevents a rider from resetting their own count.
+
+-- Atomic Ride Usage Increment & Limit Gate (Called when a ride is confirmed)
+create or replace function increment_ride_usage(p_rider_uid text)
+returns table(allowed boolean, rides_used int, rides_limit int)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_tier text;
+  v_limit int;
+  v_month text := to_char(now(), 'YYYY-MM');
+  v_current int;
+begin
+  select subscription_tier into v_tier from profiles where id = p_rider_uid;
+  if v_tier is null then
+    v_tier := 'free';
+  end if;
+
+  v_limit := case v_tier
+    when 'free' then 5
+    when 'plus' then 20
+    else null -- unlimited
+  end;
+
+  insert into rider_monthly_usage (rider_uid, month_key, rides_used)
+    values (p_rider_uid, v_month, 0)
+    on conflict (rider_uid, month_key) do nothing;
+
+  select rmu.rides_used into v_current from rider_monthly_usage rmu
+    where rmu.rider_uid = p_rider_uid and rmu.month_key = v_month;
+
+  if v_limit is not null and v_current >= v_limit then
+    return query select false, v_current, v_limit;
+    return;
+  end if;
+
+  update rider_monthly_usage
+    set rides_used = rides_used + 1
+    where rider_uid = p_rider_uid and month_key = v_month;
+
+  return query select true, v_current + 1, v_limit;
+end;
+$$;
+
+-- ══════════════════════════════════════════════════════════════════════════════
+-- 6. COPASSAGE VAULT & PLATFORM FEE COMMITMENT INFRASTRUCTURE
+-- ══════════════════════════════════════════════════════════════════════════════
+
+-- Wallet balance per user (CoPassage Vault)
+create table if not exists rider_wallets (
+  rider_uid    text primary key,
+  balance      numeric not null default 0,
+  updated_at   timestamptz default now()
+);
+
+alter table rider_wallets enable row level security;
+
+-- Commuters can view their own Vault balance
+create policy "rider reads own wallet" on rider_wallets
+  for select using (rider_uid = (select auth.uid()::text));
+
+-- All balance changes must go through security definer functions debit_wallet / credit_wallet
+
+-- Full transaction audit ledger
+create table if not exists wallet_transactions (
+  id                  uuid primary key default gen_random_uuid(),
+  rider_uid           text not null,
+  amount              numeric not null, -- positive = credit, negative = debit
+  type                text not null check (type in (
+                        'request_fee_debit', 'accept_fee_debit',
+                        'reject_refund_credit', 'razorpay_topup_credit',
+                        'expiry_refund_credit'
+                      )),
+  related_post_id     uuid references rider_open_posts(id),
+  related_request_id  uuid references join_requests(id),
+  razorpay_payment_id text,
+  balance_after       numeric not null,
+  created_at          timestamptz default now()
+);
+
+alter table wallet_transactions enable row level security;
+
+create policy "rider reads own transactions" on wallet_transactions
+  for select using (rider_uid = (select auth.uid()::text));
+
+-- Track fee state per join request
+alter table join_requests
+  add column if not exists requester_fee_amount numeric,
+  add column if not exists requester_fee_paid_via text
+    check (requester_fee_paid_via in ('razorpay','vault')),
+  add column if not exists requester_fee_status text
+    default 'unpaid' check (requester_fee_status in ('unpaid','paid','refunded')),
+  add column if not exists host_fee_amount numeric,
+  add column if not exists host_fee_paid_via text
+    check (host_fee_paid_via in ('razorpay','vault')),
+  add column if not exists host_fee_status text
+    default 'unpaid' check (host_fee_status in ('unpaid','paid','refunded'));
+
+-- Debit wallet (used for both request-fee and accept-fee payment)
+create or replace function debit_wallet(
+  p_rider_uid text,
+  p_amount numeric,
+  p_type text,
+  p_post_id uuid default null,
+  p_request_id uuid default null
+)
+returns table(success boolean, new_balance numeric)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_balance numeric;
+begin
+  select balance into v_balance from rider_wallets where rider_uid = p_rider_uid for update;
+  if v_balance is null then
+    insert into rider_wallets (rider_uid, balance) values (p_rider_uid, 0);
+    v_balance := 0;
+  end if;
+
+  if v_balance < p_amount then
+    return query select false, v_balance;
+    return;
+  end if;
+
+  update rider_wallets
+    set balance = balance - p_amount, updated_at = now()
+    where rider_uid = p_rider_uid;
+
+  insert into wallet_transactions
+    (rider_uid, amount, type, related_post_id, related_request_id, balance_after)
+    values (p_rider_uid, -p_amount, p_type, p_post_id, p_request_id, v_balance - p_amount);
+
+  return query select true, v_balance - p_amount;
+end;
+$$;
+
+-- Credit wallet (used for Razorpay top-ups AND automatic refunds on rejection)
+create or replace function credit_wallet(
+  p_rider_uid text,
+  p_amount numeric,
+  p_type text,
+  p_post_id uuid default null,
+  p_request_id uuid default null,
+  p_razorpay_payment_id text default null
+)
+returns numeric
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_new_balance numeric;
+begin
+  insert into rider_wallets (rider_uid, balance) values (p_rider_uid, p_amount)
+    on conflict (rider_uid) do update set balance = rider_wallets.balance + p_amount, updated_at = now()
+    returning balance into v_new_balance;
+
+  insert into wallet_transactions
+    (rider_uid, amount, type, related_post_id, related_request_id, razorpay_payment_id, balance_after)
+    values (p_rider_uid, p_amount, p_type, p_post_id, p_request_id, p_razorpay_payment_id, v_new_balance);
+
+  return v_new_balance;
+end;
+$$;
+
+-- Auto-refund trigger: when a join_request status changes to 'rejected'
+-- AND the requester had already paid, refund fee automatically to their Vault
+create or replace function refund_on_rejection()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if NEW.status in ('rejected', 'cancelled') and OLD.status = 'pending'
+     and NEW.requester_fee_status = 'paid' then
+    perform credit_wallet(
+      NEW.requester_uid,
+      NEW.requester_fee_amount,
+      'reject_refund_credit',
+      NEW.post_id,
+      NEW.id
+    );
+    update join_requests set requester_fee_status = 'refunded' where id = NEW.id;
+  end if;
+  return NEW;
+end;
+$$;
+
+drop trigger if exists trg_refund_on_rejection on join_requests;
+create trigger trg_refund_on_rejection
+  after update of status on join_requests
+  for each row
+  execute function refund_on_rejection();
+
+-- ─── Seed Pre-Configured Test Accounts & Wallets ───
+-- 1. Shubham Mendpara: Pro / Unlimited tier (0 in wallet)
+-- 2. Nisarg Makwana: Plus tier (0 in wallet)
+-- 3. Priya Sharma: Plus tier + ₹1,00,000 in CoPassage Vault
+-- 4. Rohan Patel: Normal user + ₹1,00,000 in CoPassage Vault
+-- 5. Ananya Kotadiya: Normal user (0 in wallet)
+
+insert into profiles (id, phone, full_name, role, subscription_tier)
+values
+  ('firebase_test_9875101054', '9875101054', 'Shubham Mendpara', 'rider', 'unlimited'),
+  ('firebase_test_8849350719', '8849350719', 'Nisarg Makwana', 'rider', 'plus'),
+  ('firebase_test_9824597605', '9824597605', 'Priya Sharma', 'rider', 'plus'),
+  ('firebase_test_9974144230', '9974144230', 'Rohan Patel', 'rider', 'free'),
+  ('firebase_test_7572867636', '7572867636', 'Ananya Kotadiya', 'rider', 'free')
+on conflict (id) do update set
+  subscription_tier = excluded.subscription_tier,
+  full_name = excluded.full_name;
+
+insert into rider_wallets (rider_uid, balance)
+values
+  ('firebase_test_9875101054', 0),
+  ('firebase_test_8849350719', 0),
+  ('firebase_test_9824597605', 100000),
+  ('firebase_test_9974144230', 100000),
+  ('firebase_test_7572867636', 0)
+on conflict (rider_uid) do update set
+  balance = excluded.balance,
+  updated_at = now();
+
+insert into wallet_transactions (rider_uid, amount, type, balance_after)
+values
+  ('firebase_test_9824597605', 100000, 'topup', 100000),
+  ('firebase_test_9974144230', 100000, 'topup', 100000)
+on conflict do nothing;
+
+
+

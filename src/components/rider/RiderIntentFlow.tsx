@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Compass,
   MapPin,
@@ -9,11 +9,15 @@ import {
   Search,
   Navigation,
   CheckCircle2,
-  ChevronLeft
+  ChevronLeft,
+  Lock,
+  X
 } from 'lucide-react';
 import { AuthedUser } from '../../types';
 import { LocationCoordinates } from '../../hooks/useGeolocation';
 import { LocationAutocomplete } from './LocationAutocomplete';
+import { getRiderMonthlyUsage } from '../../services/subscriptionUsage';
+import { TIER_RADIUS_KM } from '../../constants';
 
 export interface RouteIntentData {
   intent: 'have_auto' | 'need_auto';
@@ -29,6 +33,7 @@ interface RiderIntentFlowProps {
   coords: LocationCoordinates;
   onComplete: (data: RouteIntentData) => void;
   onCancel?: () => void;
+  onOpenPlans?: () => void;
 }
 
 export const RiderIntentFlow: React.FC<RiderIntentFlowProps> = ({
@@ -36,9 +41,36 @@ export const RiderIntentFlow: React.FC<RiderIntentFlowProps> = ({
   coords,
   onComplete,
   onCancel,
+  onOpenPlans,
 }) => {
   const [step, setStep] = useState<'choose_intent' | 'enter_details'>('choose_intent');
   const [selectedIntent, setSelectedIntent] = useState<'have_auto' | 'need_auto' | null>(null);
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const [monthlyUsage, setMonthlyUsage] = useState<{ ridesUsed: number; ridesLimit: number | null }>({
+    ridesUsed: 0,
+    ridesLimit: 5,
+  });
+
+  useEffect(() => {
+    const fetchUsage = async () => {
+      const usage = await getRiderMonthlyUsage(
+        user.uid,
+        user.subscription_tier || 'free'
+      );
+      setMonthlyUsage(usage);
+    };
+    fetchUsage();
+
+    // Re-fetch when the user returns to this tab/screen (e.g. after completing a ride)
+    const handleFocus = () => fetchUsage();
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') fetchUsage();
+    });
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [user.uid, user.subscription_tier]);
 
   // Form State
   const [destination, setDestination] = useState('');
@@ -152,6 +184,85 @@ export const RiderIntentFlow: React.FC<RiderIntentFlowProps> = ({
                 </div>
               </button>
             </div>
+
+            {/* Membership & Plans Card */}
+            <div className="bg-white/95 backdrop-blur-md p-5 rounded-3xl shadow-sm border-2 border-[#0F2A4A]/10 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <div className={`w-10 h-10 rounded-2xl border-2 border-[#0F2A4A] flex items-center justify-center text-[#0F2A4A] shadow-xs ${
+                    user.subscription_tier === 'unlimited'
+                      ? 'bg-amber-100'
+                      : user.subscription_tier === 'plus'
+                      ? 'bg-blue-100'
+                      : 'bg-[#CAFFA6]'
+                  }`}>
+                    <Sparkles className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-black uppercase tracking-wider text-gray-400 block">
+                      Membership & Quota
+                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-sm font-black text-[#0F2A4A]">
+                        {user.subscription_tier === 'unlimited'
+                          ? 'CoPassage Unlimited'
+                          : user.subscription_tier === 'plus'
+                          ? 'Commuter Plus Plan'
+                          : 'Free Community Plan'}
+                      </span>
+                      <span className="text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded-md bg-[#CAFFA6] text-[#0F2A4A] border border-[#0F2A4A]/20">
+                        {TIER_RADIUS_KM[user.subscription_tier || 'free']} km Radar
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={onOpenPlans}
+                  className="px-3.5 py-1.5 bg-[#0F2A4A] hover:bg-[#163a63] text-[#CAFFA6] rounded-xl text-xs font-black shadow-xs cursor-pointer active:scale-95 transition-all"
+                >
+                  {user.subscription_tier === 'unlimited' ? 'Manage' : 'Upgrade'}
+                </button>
+              </div>
+
+              {/* Monthly Ride Quota Progress Bar */}
+              <div className="bg-[#F7F9E1] p-3 rounded-2xl border border-[#0F2A4A]/10 space-y-1.5">
+                <div className="flex items-center justify-between text-xs font-bold text-gray-700">
+                  <span>Monthly Ride Usage</span>
+                  <span className="font-mono font-black text-[#0F2A4A]">
+                    {monthlyUsage.ridesLimit !== null
+                      ? `${monthlyUsage.ridesUsed} / ${monthlyUsage.ridesLimit} rides used`
+                      : `${monthlyUsage.ridesUsed} rides taken (Unlimited)`}
+                  </span>
+                </div>
+
+                {monthlyUsage.ridesLimit !== null && (
+                  <div className="w-full h-2.5 bg-gray-200 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full transition-all duration-500 rounded-full ${
+                        monthlyUsage.ridesUsed >= monthlyUsage.ridesLimit
+                          ? 'bg-red-500'
+                          : monthlyUsage.ridesUsed >= monthlyUsage.ridesLimit * 0.8
+                          ? 'bg-amber-500'
+                          : 'bg-emerald-500'
+                      }`}
+                      style={{
+                        width: `${Math.min(100, Math.round((monthlyUsage.ridesUsed / monthlyUsage.ridesLimit) * 100))}%`,
+                      }}
+                    />
+                  </div>
+                )}
+              </div>
+
+              <p className="text-xs text-gray-500 leading-relaxed">
+                {user.subscription_tier === 'unlimited'
+                  ? 'Unlimited shared rides, 2.0 km matching radius, ₹0 platform fee, and advanced route preferences active.'
+                  : user.subscription_tier === 'plus'
+                   ? '20 shared rides/mo, 1.5 km matching radius, flat ₹10 CoPassage fee, and saved frequent routes active.'
+                  : 'Free plan: 5 rides/mo, 1.0 km matching radius, and convenience fee of max(₹15, 10%). Upgrade to Plus for 20 rides and priority matching.'}
+              </p>
+            </div>
           </div>
         )}
 
@@ -211,6 +322,59 @@ export const RiderIntentFlow: React.FC<RiderIntentFlowProps> = ({
                   <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 bg-emerald-200 text-emerald-900 rounded-md">
                     GPS Fixed
                   </span>
+                </div>
+              </div>
+
+              {/* Saved Frequent Routes (Gated by Tier: Home/Work on Free, Up to 5 on Plus/Unlimited) */}
+              <div className="space-y-1.5 pt-1">
+                <div className="flex items-center justify-between">
+                  <label className="block text-[11px] font-black uppercase tracking-wider text-gray-500">
+                    Saved Frequent Routes
+                  </label>
+                  <span className="text-[10px] font-bold text-gray-400">
+                    {user.subscription_tier === 'plus' || user.subscription_tier === 'unlimited'
+                      ? '5 Frequent Routes Active'
+                      : 'Home & Work only (Free)'}
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-2 flex-wrap">
+                  {[
+                    { id: 'home', label: '🏠 Home', dest: 'Railway Station Road' },
+                    { id: 'work', label: '💼 Work', dest: 'Cyber City Tech Park' },
+                    ...((user.subscription_tier === 'plus' || user.subscription_tier === 'unlimited')
+                      ? [
+                          { id: 'campus', label: '🎓 Campus', dest: 'University North Campus' },
+                          { id: 'gym', label: '🏋️ Gym', dest: 'FitZone Ring Road' },
+                          { id: 'metro', label: '🚇 Metro', dest: 'Metro Station Junction' },
+                        ]
+                      : []),
+                  ].map((r) => (
+                    <button
+                      key={r.id}
+                      type="button"
+                      onClick={() => setDestination(r.dest)}
+                      className={`px-3 py-1.5 rounded-xl border text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 active:scale-95 ${
+                        destination === r.dest
+                          ? 'bg-[#0F2A4A] text-[#CAFFA6] border-[#0F2A4A] shadow-xs'
+                          : 'bg-white hover:bg-gray-50 text-gray-700 border-gray-200'
+                      }`}
+                    >
+                      <span>{r.label}</span>
+                    </button>
+                  ))}
+
+                  {user.subscription_tier !== 'plus' && user.subscription_tier !== 'unlimited' && (
+                    <button
+                      type="button"
+                      onClick={() => setShowUpgradeModal(true)}
+                      className="px-2.5 py-1.5 rounded-xl border border-dashed border-[#0F2A4A]/30 text-[#0F2A4A] bg-[#CAFFA6]/20 hover:bg-[#CAFFA6]/40 text-xs font-bold transition-all cursor-pointer flex items-center gap-1 active:scale-95"
+                      title="Upgrade to Plus or Unlimited to save up to 5 frequent routes"
+                    >
+                      <Lock className="w-3 h-3 text-[#0F2A4A]" />
+                      <span>+ Add Route (Plus)</span>
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -315,6 +479,57 @@ export const RiderIntentFlow: React.FC<RiderIntentFlowProps> = ({
           </div>
         )}
       </div>
+
+      {/* Upgrade to Plus Modal for Gated Saved Routes */}
+      {showUpgradeModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#0F2A4A]/70 backdrop-blur-xs animate-fade-in">
+          <div className="bg-[#F7F9E1] rounded-3xl p-6 sm:p-8 max-w-md w-full border-3 border-[#0F2A4A] shadow-[0_12px_0_#0F2A4A] relative space-y-4">
+            <button
+              onClick={() => setShowUpgradeModal(false)}
+              className="absolute right-4 top-4 p-2 rounded-full hover:bg-gray-100 text-gray-400 hover:text-[#0F2A4A] transition-colors cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="w-14 h-14 rounded-2xl bg-[#CAFFA6] border-2 border-[#0F2A4A] flex items-center justify-center text-[#0F2A4A] shadow-xs">
+              <Lock className="w-7 h-7 text-[#0F2A4A]" />
+            </div>
+
+            <div>
+              <span className="text-[10px] font-black uppercase tracking-wider text-[#0F2A4A] bg-[#CAFFA6] border border-[#0F2A4A] px-2.5 py-0.5 rounded-full">
+                Plus & Unlimited Feature
+              </span>
+              <h3 className="text-2xl font-black text-[#0F2A4A] mt-2 leading-tight">
+                Unlock 5 Saved Frequent Routes
+              </h3>
+              <p className="text-xs text-[#204654] mt-2 leading-relaxed">
+                Free plan members can use basic <strong>Home</strong> and <strong>Work</strong> shortcuts. Upgrade to <strong>Plus</strong> or <strong>Unlimited</strong> to save up to 5 custom named routes with instant 1-tap route selection!
+              </p>
+            </div>
+
+            <div className="pt-2 flex flex-col gap-2.5">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowUpgradeModal(false);
+                  if (onOpenPlans) onOpenPlans();
+                }}
+                className="w-full py-3.5 px-4 bg-[#0F2A4A] hover:bg-[#163a63] text-[#CAFFA6] font-black text-xs rounded-xl border-2 border-[#0F2A4A] shadow-[0_3px_0_#0F2A4A] active:translate-y-0.5 transition-all cursor-pointer flex items-center justify-center gap-2"
+              >
+                <span>View Plans & Upgrade (from ₹89/mo)</span>
+                <ArrowRight className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowUpgradeModal(false)}
+                className="w-full py-2.5 px-4 text-xs font-bold text-gray-500 hover:text-gray-800 transition-colors"
+              >
+                Continue with Home / Work Only
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

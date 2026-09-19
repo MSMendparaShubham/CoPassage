@@ -2,12 +2,18 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../supabase';
 import { RiderPost, JoinRequest, AuthedUser } from '../types';
 import { LocationCoordinates } from './useGeolocation';
+import { incrementRideUsage } from '../services/subscriptionUsage';
 
 export function useBroadcast(user: AuthedUser | null, coords: LocationCoordinates) {
   const [activePost, setActivePost] = useState<RiderPost | null>(null);
   const [incomingRequests, setIncomingRequests] = useState<JoinRequest[]>([]);
   const [isBroadcasting, setIsBroadcasting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [quotaExceededInfo, setQuotaExceededInfo] = useState<{
+    riderName: string;
+    limit: number;
+    isSelf: boolean;
+  } | null>(null);
   const heartbeatTimerRef = useRef<number | null>(null);
   const coordsRef = useRef<LocationCoordinates>(coords);
 
@@ -89,16 +95,50 @@ export function useBroadcast(user: AuthedUser | null, coords: LocationCoordinate
     }
   }, [activePost]);
 
-  // Accept a join request
+  // Accept a join request with host platform fee confirmation
   const acceptRequest = useCallback(
-    async (request: JoinRequest) => {
-      if (!activePost) return;
+    async (
+      request: JoinRequest,
+      paymentInfo?: {
+        paidVia?: 'razorpay' | 'vault';
+        feeAmount?: number;
+        razorpayPaymentId?: string;
+      }
+    ) => {
+      if (!activePost) return false;
 
       try {
-        // 1. Accept the join request
+        // 0. Quota check: Ensure both Host and Requester have rides remaining this month
+        const hostTier = user?.subscription_tier || 'free';
+        const hostUsage = await incrementRideUsage(activePost.host_uid, hostTier);
+        if (!hostUsage.allowed) {
+          const limit = hostUsage.rides_limit ?? 5;
+          setQuotaExceededInfo({ riderName: 'You', limit, isSelf: true });
+          setError(`You have used all ${limit} rides this month. Upgrade plan to continue.`);
+          return false;
+        }
+
+        const requesterUsage = await incrementRideUsage(request.requester_uid, 'free');
+        if (!requesterUsage.allowed) {
+          const limit = requesterUsage.rides_limit ?? 5;
+          setQuotaExceededInfo({ riderName: request.requester_name, limit, isSelf: false });
+          setError(`Co-rider ${request.requester_name} has used all ${limit} rides this month.`);
+          return false;
+        }
+
+        // 1. Accept the join request & record verified host fee payment
+        const updatePayload: any = {
+          status: 'accepted',
+        };
+        if (paymentInfo) {
+          updatePayload.host_fee_status = 'paid';
+          updatePayload.host_fee_amount = paymentInfo.feeAmount ?? 0;
+          updatePayload.host_fee_paid_via = paymentInfo.paidVia ?? 'vault';
+        }
+
         const { error: reqError } = await supabase
           .from('join_requests')
-          .update({ status: 'accepted' })
+          .update(updatePayload)
           .eq('id', request.id);
 
         if (reqError) throw reqError;
@@ -112,12 +152,14 @@ export function useBroadcast(user: AuthedUser | null, coords: LocationCoordinate
         if (postError) throw postError;
 
         setActivePost((prev) => (prev ? { ...prev, status: 'matched' } : null));
+        return true;
       } catch (err: any) {
         console.error('Error accepting join request:', err);
         setError(err.message || 'Failed to accept request.');
+        return false;
       }
     },
-    [activePost]
+    [activePost, user]
   );
 
   // Reject a join request
@@ -223,6 +265,8 @@ export function useBroadcast(user: AuthedUser | null, coords: LocationCoordinate
     incomingRequests,
     isBroadcasting,
     error,
+    quotaExceededInfo,
+    setQuotaExceededInfo,
     startBroadcast,
     stopBroadcast,
     acceptRequest,

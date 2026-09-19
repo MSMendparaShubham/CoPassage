@@ -77,20 +77,116 @@ The database consists of 5 core tables:
 
 ---
 
+### 9. Subscription Tier Enforcement Architecture
+
+CoPassage enforces three distinct commuter subscription tiers that govern spatial search radius, monthly ride allowances, matching priority, saved route limits, and platform transaction fees:
+
+#### Plan Definitions (Source of Truth)
+
+| Tier | Rides/month | Matching Radius | Matching Priority | Saved Routes | Platform Fee |
+|---|---|---|---|---|---|
+| **Free** | 5 | 1.0 km | Standard | No (Home/Work only) | 10% of fare share |
+| **Plus (₹89/mo)** | 20 | 1.5 km | Priority | Yes (Up to 5 routes) | Flat ₹25 |
+| **Unlimited (₹109/mo)** | Unlimited | 2.0 km | Priority | Yes (+ advanced route prefs) | Waived (₹0) |
+
+#### Code Enforcement Map
+
+1. **Origin Proximity Radius Scoping**:
+   - Centralized in `src/constants.ts` via `TIER_RADIUS_KM`: `free` = 1.0 km, `plus` = 1.5 km, `unlimited` = 2.0 km.
+   - Dynamic Leaflet circle overlay in `MapView.tsx` renders at `tierRadiusKm * 1000` meters.
+   - `filterNearbyOpenPosts` filters incoming broadcasts strictly against the commuter's tier radius (both initial REST queries and live Realtime inserts).
+   - *Note*: Destination proximity (`MAX_DEST_DISTANCE_KM = 2.0 km`) and corridor bearing alignment (`MAX_BEARING_DIFF_DEG = 25°`) remain uniform system constants.
+
+2. **Monthly Ride Quotas & Atomic Postgres Enforcement**:
+   - Table `rider_monthly_usage` tracks calendar-month usage (`YYYY-MM`) with row-level security.
+   - Atomic Postgres function `increment_ride_usage(p_rider_uid)` runs with `SECURITY DEFINER` privileges, verifying current count against tier limits (`free`: 5, `plus`: 20, `unlimited`: null).
+   - In `useBroadcast.ts`, both Host and Requester quotas are checked upon ride confirmation (`acceptRequest`). If either party has exhausted their allowance, matching is blocked with an upgrade prompt.
+   - `src/services/subscriptionUsage.ts` provides resilient offline/demo fallback synchronization.
+
+3. **Priority Matching Tie-Breaker Ranking**:
+   - In `DirectMatchView.tsx`, `rankJoinRequests` evaluates candidate match scores:
+     - When spatial match scores are tied or within 5% of each other, commuters with `unlimited` or `plus` tiers receive priority ranking over `free` tier commuters.
+     - When score differences exceed 5%, genuine corridor proximity and route overlap determine ranking to preserve physical efficiency.
+
+4. **Saved Frequent Routes**:
+   - In `RiderIntentFlow.tsx`, commuters can access one-tap quick chips for frequent routes:
+     - Free tier: Fixed Home & Work presets.
+     - Plus & Unlimited tiers: Up to 5 customizable frequent corridors with one-tap selection.
+     - Tapping "+ Add Route" on the Free tier opens the plan comparison modal.
+
+5. **Platform Fee Calculation (CoPassage Convenience Fee Only)**:
+   - **Important**: CoPassage only charges its own platform cut. The auto fare split is paid **offline** directly to the driver (cash / UPI). CoPassage's payment modal collects only the convenience fee.
+   - Implemented in `src/constants.ts` via `calculatePlatformFee(fareShare, tier)`:
+     - **Free**: `10% of commuter’s fare share` (no minimum floor).
+     - **Plus**: Flat **₹25** per ride.
+     - **Unlimited**: **₹0** (Platform fee waived).
+   - Displayed transparently in `DirectMatchView.tsx`, `JoinRequestModal.tsx`, and `ActiveRideOverlay.tsx`.
+
+7. **Real Payment Integration & CoPassage Vault (In-App Wallet)**:
+   - **Pay-to-Request (Requester)**: Commuters pay the platform fee up-front when clicking "Request to Join" before a join request is inserted.
+   - **Pay-to-Accept (Host)**: Hosts pay the platform fee when clicking "Accept" before the ride status transitions to matched.
+   - **CoPassage Vault**: An in-app wallet for instant payments and automatic refunds:
+     - Direct writes blocked by RLS; mutations handled via Postgres functions `debit_wallet` and `credit_wallet`.
+     - Trigger `trg_refund_on_rejection` automatically refunds 100% of the requester's commitment fee to their Vault if their request is declined or cancelled.
+     - Profile tab shows live Vault balance (`₹X.XX Available`), top-up modal with presets (₹50, ₹100, ₹200, ₹500), and transaction audit ledger.
+   - **Dual Payment Options (`PaymentMethodModal`)**: Riders can pay with their CoPassage Vault (instant zero-latency checkout) or via Razorpay Standard Checkout.
+   - **Backend Razorpay Order & Signature Security**:
+     - `server/razorpayMiddleware.ts`: Mounted into Vite server, handling `/api/create-order` and `/api/verify-payment` with timing-safe HMAC SHA-256 verification.
+
+---
+
+## Routed Information & Legal Pages Catalog
+
+All corporate and legal footer links are wired to dedicated client-side routes powered by `react-router-dom` and the shared `InfoPageLayout` template (`src/components/layout/InfoPageLayout.tsx`):
+
+### Company Pages
+1. **`/about`** (`src/pages/AboutPage.tsx`): Origin story, commuter self-organization insight, explicit "no drivers / not a dispatcher" model clarification, and mission principles.
+2. **`/careers`** (`src/pages/CareersPage.tsx`): Open roles across Engineering, Spatial Geodesy, Product Design, and City Ops, with direct link to the CoPassage hiring Google Form.
+3. **`/press`** (`src/pages/PressPage.tsx`): Official company boilerplate, logo asset downloads (light/dark canvas PNGs), brand color hex palette, and media desk contact.
+4. **`/fair-fare-code`** (`src/pages/FairFareCodePage.tsx`): Plain-language community conduct commitments covering fare honesty, equal split, respect, punctuality, and anti-harassment.
+5. **`/contact`** (`src/pages/ContactPage.tsx`): Corporate office address in Ahmedabad, department email directory, and interactive contact submission form.
+
+### Legal & Governance Pages
+6. **`/terms`** (`src/pages/TermsPage.tsx`): 12-section Terms of Service covering service classification (coordination platform only), user responsibilities, convenience fees, non-refundable CoPassage Vault funds, liability limitations, and arbitration.
+7. **`/privacy`** (`src/pages/PrivacyPage.tsx`): 11-section Privacy Policy detailing phone authentication, ephemeral location data safeguards (GPS deleted upon ride completion), third-party infrastructure (Firebase, Supabase, Razorpay, Google Maps), and DPDP Act 2023 compliance.
+8. **`/safety-charter`** (`src/pages/SafetyCharterPage.tsx`): Public safety charter explaining the 3-rider seating cap, one-tap SOS emergency beacon logging, Safety Guardian contacts, Safe Share female-only matching, and mutual completion verification.
+9. **`/fare-guidelines`** (`src/pages/FareGuidelinesPage.tsx`): Step-by-step fare splitting walkthrough, platform convenience fee schedule (Free: 10%, Plus: ₹25 flat, Unlimited: ₹0), and FAQ accordion.
+10. **`/grievance-officer`** (`src/pages/GrievanceOfficerPage.tsx`): Statutory compliance details under Indian IT Act 2000 and Consumer Protection E-Commerce Rules (Officer: Rajeshwari Sharma, email, physical address, and 24-48h / 15-30 day resolution SLAs).
+
+> [!WARNING]
+> **Mandatory Pre-Launch Legal Review Notice**:
+> The Terms of Service (`/terms`) and Privacy Policy (`/privacy`) pages are structured prototype drafts. Because CoPassage processes real financial transactions (via Razorpay), maintains an in-app stored wallet (CoPassage Vault with non-refundable balance rules), and collects live geospatial telematics, **a qualified legal counsel in India must review and finalize these documents before commercial launch**, with specific attention to RBI Prepaid Payment Instrument (PPI) regulations and the Digital Personal Data Protection Act, 2023.
+
+---
+
 ## Component Map
 - `src/supabase.ts`: Supabase client singleton with Firebase token supplier.
-- `src/types.ts`: TypeScript interfaces for `AuthedUser`, `RiderPost`, `JoinRequest`, `RideMessage`, `SosEvent`, `RiderRating`.
-- `src/hooks/useGeolocation.ts`: Contextual geolocation tracking and watcher.
-- `src/hooks/useBroadcast.ts`: Host broadcast state manager, heartbeat timer, and incoming request listener.
-- `src/components/rider/RiderHome.tsx`: Post-auth shell with bottom tab navigation (Map, Rides, Profile).
-- `src/components/rider/RiderIntentFlow.tsx`: Two-step intent selection (Have Auto / Need Auto) with GPS-only origin and autocomplete destination.
-- `src/components/rider/MapView.tsx`: Leaflet + OpenStreetMap canvas with 2km radius, bearing-filtered pins, map lifecycle management.
+- `src/constants.ts`: System constants for geo radii (`TIER_RADIUS_KM`, `MAX_RADIUS_KM`), bearing tolerances, and `calculatePlatformFee`.
+- `src/types.ts`: TypeScript interfaces for `AuthedUser`, `Profile`, `SubscriptionTier`, `RiderPost`, `JoinRequest`, `RideMessage`, `SosEvent`, `RiderRating`, `RiderWallet`, `WalletTransaction`.
+- `src/services/geoUtils.ts`: Mathematical geodetic algorithms (Haversine distance, Azimuth bearing, angular diff, crossTrackDistanceKm, calculateMatchScore).
+- `src/services/subscriptionUsage.ts`: Monthly ride quota tracking service with Supabase RPC integration and local fallback.
+- `src/services/vaultService.ts`: CoPassage Vault state manager for balance queries, atomic debits, credits, and transaction history.
+- `src/services/razorpay.ts`: Razorpay client checkout script loader, order creator, and verification wrapper.
+- `server/razorpayMiddleware.ts`: Vite dev server backend middleware handling `/api/create-order` and `/api/verify-payment`.
+- `src/components/layout/InfoPageLayout.tsx`: Shared master layout template for all info and legal pages.
+- `src/components/layout/Navbar.tsx`: Sticky navigation bar with client-side routing and auth controls.
+- `src/components/layout/Footer.tsx`: 5-column corporate footer with active router Links for all Company and Legal pages.
+- `src/components/layout/ScrollToTop.tsx`: Automatic window scroll restoration on path/anchor navigation.
+- `src/pages/*.tsx`: All 10 routed pages for Company and Legal & Governance sections.
+- `src/components/rider/RiderHome.tsx`: Post-auth shell with bottom tab navigation, plans modal orchestration, and sub-views.
+- `src/components/rider/RiderIntentFlow.tsx`: Two-step intent selection (Have Auto / Need Auto) with tier-aware saved routes.
+- `src/components/rider/MapView.tsx`: Google Maps canvas with tier-specific radius circle, bearing-filtered pins, map lifecycle, and host acceptance payment gate.
+- `src/components/rider/DirectMatchView.tsx`: Candidate corridor list with priority tie-breaker ranking, red detour chips, fee breakdowns, and host acceptance payment gate.
 - `src/components/rider/PostFoundAutoModal.tsx`: GPS-only origin, autocomplete destination, fare & seat broadcast form.
 - `src/components/rider/HostBroadcastOverlay.tsx`: Host active broadcast state with incoming request approvals.
-- `src/components/rider/JoinRequestModal.tsx`: Co-rider join flow with privacy protections.
-- `src/components/rider/ActiveRideOverlay.tsx`: Full-view matched ride dashboard with mutual completion, realtime subscriptions, timeout fallback, and ReviewScreen integration.
+- `src/components/rider/JoinRequestModal.tsx`: Co-rider join flow with privacy protections, fee breakdown, and requester payment gate.
+- `src/components/rider/PaymentMethodModal.tsx`: Unified payment selection modal offering CoPassage Vault or Razorpay checkout.
+- `src/components/rider/VaultTopUpModal.tsx`: Vault top-up interface with amount chips and Razorpay checkout.
+- `src/components/rider/ActiveRideOverlay.tsx`: Full-view matched ride dashboard with fee line item, mutual completion, and ReviewScreen integration.
+- `src/components/rider/PaymentConfirmScreen.tsx`: In-ride payment confirmation with tier fee breakdown and conditional upsell.
 - `src/components/rider/ReviewScreen.tsx`: Post-ride 5-star commuter rating with duplicate guard and skip option.
 - `src/components/rider/RiderChat.tsx`: Realtime chat between matched riders.
 - `src/components/rider/SOSModal.tsx`: Database-first emergency SOS dispatcher.
 - `src/components/rider/ActivityView.tsx`: Ride history and fare savings log.
-- `src/components/rider/ProfileView.tsx`: Commuter profile with average rating, star distribution, and safety info.
+- `src/components/rider/ProfileView.tsx`: Commuter profile with active subscription tier badge, radar radius pill, monthly ride quota bar, ratings, and CoPassage Vault card.
+- `src/components/pricing/PlansSection.tsx`: Pricing and subscription tier comparison modal.

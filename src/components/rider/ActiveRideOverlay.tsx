@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Map, AdvancedMarker, useMap, useMapsLibrary } from '@vis.gl/react-google-maps';
 import {
   MessageSquare,
   ShieldAlert,
@@ -9,7 +10,10 @@ import {
   Loader2,
   Navigation,
   ExternalLink,
-  Compass
+  Compass,
+  Maximize2,
+  Minimize2,
+  Car
 } from 'lucide-react';
 import { RiderPost, JoinRequest, AuthedUser } from '../../types';
 import { LocationCoordinates } from '../../hooks/useGeolocation';
@@ -17,6 +21,10 @@ import { RiderChat } from './RiderChat';
 import { SOSModal } from './SOSModal';
 import { ReviewScreen } from './ReviewScreen';
 import { supabase } from '../../supabase';
+import { EmbeddedRouteMap } from './EmbeddedRouteMap';
+import { PaymentConfirmScreen } from './PaymentConfirmScreen';
+import { calculatePlatformFee } from '../../constants';
+import { incrementRideUsage } from '../../services/subscriptionUsage';
 
 interface ActiveRideOverlayProps {
   user: AuthedUser;
@@ -44,6 +52,7 @@ export const ActiveRideOverlay: React.FC<ActiveRideOverlayProps> = ({
   const [riderComplete, setRiderComplete] = useState(matchedRequest?.rider_marked_complete ?? false);
   const [rideCompleted, setRideCompleted] = useState(post.status === 'completed');
   const [showReview, setShowReview] = useState(false);
+  const [isPaymentConfirmOpen, setIsPaymentConfirmOpen] = useState(false);
 
   // 10-minute timeout tracking
   const [markedAt, setMarkedAt] = useState<number | null>(null);
@@ -181,12 +190,14 @@ export const ActiveRideOverlay: React.FC<ActiveRideOverlayProps> = ({
         setIsMarking(false);
         setMarkedAt(Date.now());
 
-        // Simulate partner completing 1.2 seconds later
+        // Simulate partner completing 1.2 seconds later → ride done
         setTimeout(() => {
           setHostComplete(true);
           setRiderComplete(true);
           setRideCompleted(true);
           setShowReview(true);
+          // Increment the monthly ride counter for this user so the card updates
+          incrementRideUsage(user.uid, user.subscription_tier || 'free').catch(() => {});
         }, 1200);
       }, 500);
       return;
@@ -208,6 +219,8 @@ export const ActiveRideOverlay: React.FC<ActiveRideOverlayProps> = ({
             .update({ rider_marked_complete: true })
             .eq('id', matchedRequest.id);
           setRiderComplete(true);
+          // Increment local ride counter for requester (host side incremented on acceptRequest)
+          incrementRideUsage(user.uid, user.subscription_tier || 'free').catch(() => {});
         }
       }
       setMarkedAt(Date.now());
@@ -277,54 +290,20 @@ export const ActiveRideOverlay: React.FC<ActiveRideOverlayProps> = ({
           </div>
         </div>
 
-        {/* ================= GOOGLE MAPS TURN-BY-TURN CARD ================= */}
-        <div className="bg-white/95 backdrop-blur-md rounded-3xl shadow-md border-2 border-[#0F2A4A]/15 p-5 mb-4 space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2.5">
-              <div className="w-9 h-9 rounded-xl bg-emerald-100 border border-emerald-300 text-emerald-800 flex items-center justify-center font-black">
-                <Navigation className="w-4.5 h-4.5 fill-current" />
-              </div>
-              <div>
-                <span className="text-[10px] font-black uppercase tracking-wider text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
-                  Google Maps Live Route
-                </span>
-                <h4 className="text-sm font-black text-[#0F2A4A] mt-0.5">
-                  {isHost ? `Pickup Directions to ${partnerName}` : `Directions to ${partnerName}'s Auto`}
-                </h4>
-              </div>
-            </div>
+        {/* ================= EMBEDDED GOOGLE MAPS ROUTE ================= */}
+        <EmbeddedRouteMap
+          originLat={hostLat}
+          originLng={hostLng}
+          destLat={requesterLat}
+          destLng={requesterLng}
+          isHost={isHost}
+          partnerName={partnerName}
+          pickupUserName={isHost ? partnerName : (user.user_metadata?.full_name || 'You')}
+          googleMapsDirectionsUrl={googleMapsDirectionsUrl}
+          originLabel={post.origin_label || (isHost ? 'Your Auto' : `${partnerName}'s Auto`)}
+          destLabel={matchedRequest?.pickup_label || undefined}
+        />
 
-            <span className="text-[11px] font-bold text-gray-500 font-mono">
-              ~200m • 2 mins
-            </span>
-          </div>
-
-          {/* Source ➔ Destination Coordinate Route */}
-          <div className="p-3 bg-[#F7F9E1] rounded-2xl border border-[#0F2A4A]/10 text-xs space-y-2">
-            <div className="flex items-center gap-2 text-[#0F2A4A] font-bold">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0"></span>
-              <span className="text-gray-500 font-medium">Source (Host):</span>
-              <span className="font-mono text-xs">{hostLat.toFixed(4)}, {hostLng.toFixed(4)}</span>
-            </div>
-            <div className="flex items-center gap-2 text-[#0F2A4A] font-bold">
-              <span className="w-2.5 h-2.5 rounded-full bg-red-500 shrink-0"></span>
-              <span className="text-gray-500 font-medium">Destination (Pickup):</span>
-              <span className="font-mono text-xs">{requesterLat.toFixed(4)}, {requesterLng.toFixed(4)}</span>
-            </div>
-          </div>
-
-          {/* Primary Google Maps Navigation Button */}
-          <a
-            href={googleMapsDirectionsUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="w-full py-3.5 px-4 bg-[#0F2A4A] hover:bg-[#1c456f] text-[#CAFFA6] font-black text-xs sm:text-sm rounded-2xl shadow-sm flex items-center justify-center gap-2.5 transition-all active:scale-[0.98] cursor-pointer"
-          >
-            <Compass className="w-4 h-4 animate-spin-slow" />
-            <span>🧭 Open Google Maps Turn-by-Turn Directions</span>
-            <ExternalLink className="w-3.5 h-3.5" />
-          </a>
-        </div>
 
         {/* Co-Rider Profile Card */}
         <div className="bg-white/95 backdrop-blur-md rounded-3xl shadow-sm border-2 border-[#0F2A4A]/10 p-5 mb-4">
@@ -360,14 +339,36 @@ export const ActiveRideOverlay: React.FC<ActiveRideOverlayProps> = ({
         </div>
 
         {/* Route & Payment Reminder */}
-        <div className="p-4 bg-[#F7F9E1] rounded-2xl border border-[#0F2A4A]/10 flex items-center justify-between text-xs text-gray-700 mb-4">
-          <div className="flex items-center gap-2">
-            <MapPin className="w-4 h-4 text-[#4A9FE0] shrink-0" />
-            <span className="truncate max-w-[200px] font-bold text-[#0F2A4A]">{post.dest_label || 'Destination'}</span>
+        <div className="p-4 bg-[#F7F9E1] rounded-2xl border border-[#0F2A4A]/10 space-y-2 mb-4">
+          <div className="flex items-center justify-between text-xs text-gray-700">
+            <div className="flex items-center gap-2">
+              <MapPin className="w-4 h-4 text-[#4A9FE0] shrink-0" />
+              <span className="truncate max-w-[200px] font-bold text-[#0F2A4A]">{post.dest_label || 'Destination'}</span>
+            </div>
+            <span className="text-[11px] text-emerald-800 font-bold bg-[#CAFFA6]/60 px-2 py-0.5 rounded-full">
+              Equal split • Pay offline / UPI
+            </span>
           </div>
-          <span className="text-[11px] text-emerald-800 font-bold bg-[#CAFFA6]/60 px-2 py-0.5 rounded-full">
-            Equal split • Pay offline / UPI
-          </span>
+
+          <div className="pt-2 border-t border-[#0F2A4A]/10 flex items-center justify-between text-[11px] text-gray-600">
+            <span>Platform Fee ({user.subscription_tier === 'unlimited' ? 'Unlimited' : user.subscription_tier === 'plus' ? 'Plus' : 'Free'}):</span>
+            <div className="flex items-center gap-2">
+              <span className="font-extrabold text-[#0F2A4A]">
+                {user.subscription_tier === 'unlimited'
+                  ? '₹0 (Waived)'
+                  : user.subscription_tier === 'plus'
+                  ? 'Flat ₹25'
+                  : `₹${calculatePlatformFee(splitFare, user.subscription_tier || 'free')} (10%)`}
+              </span>
+              <button
+                type="button"
+                onClick={() => setIsPaymentConfirmOpen(true)}
+                className="text-[10px] text-[#0F2A4A] font-black underline hover:text-blue-700 cursor-pointer"
+              >
+                Breakdown
+              </button>
+            </div>
+          </div>
         </div>
 
         {/* Action Buttons: Chat & Complete */}
@@ -443,6 +444,17 @@ export const ActiveRideOverlay: React.FC<ActiveRideOverlayProps> = ({
         coords={coords}
         partnerPhone={partnerPhone}
         partnerName={partnerName}
+      />
+
+      {/* Fare & Fee Confirmation Modal */}
+      <PaymentConfirmScreen
+        isOpen={isPaymentConfirmOpen}
+        onClose={() => setIsPaymentConfirmOpen(false)}
+        fareShare={splitFare}
+        tier={user.subscription_tier || 'free'}
+        partnerName={partnerName}
+        destination={post.dest_label || undefined}
+        onConfirm={() => setIsPaymentConfirmOpen(false)}
       />
     </>
   );
