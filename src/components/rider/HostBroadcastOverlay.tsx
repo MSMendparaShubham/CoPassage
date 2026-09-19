@@ -10,7 +10,7 @@ import {
   calculateBearing,
   getBearingDifference
 } from '../../services/geoUtils';
-import { TIER_RADIUS_KM } from '../../constants';
+import { MAX_RADIUS_KM, TIER_RADIUS_KM } from '../../constants';
 
 interface HostBroadcastOverlayProps {
   post: RiderPost;
@@ -88,7 +88,7 @@ export const HostBroadcastOverlay: React.FC<HostBroadcastOverlayProps> = ({
             crossTrackKm: crossTrack,
             alongTrackKm: alongTrack,
             totalRouteKm: totalRoute,
-            maxRadiusKm: 2.0,
+            maxRadiusKm: MAX_RADIUS_KM,
           })
         : 90;
 
@@ -190,6 +190,11 @@ export const HostBroadcastOverlay: React.FC<HostBroadcastOverlayProps> = ({
                     {req.detourKm != null && (
                       <span className="text-[9px] font-mono font-bold px-2 py-0.5 rounded-full bg-red-50 text-red-700 border border-red-200 shadow-xs">
                         📍 {req.detourKm < 0.05 ? '0m detour' : `${(req.detourKm * 1000).toFixed(0)}m detour`}
+                      </span>
+                    )}
+                    {(req as any).detour_surcharge_amount != null && (req as any).detour_surcharge_amount > 0 && (
+                      <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-300 shadow-xs">
+                        +₹{(req as any).detour_surcharge_amount} detour (settled directly)
                       </span>
                     )}
                   </div>

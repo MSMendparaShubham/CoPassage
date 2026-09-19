@@ -16,6 +16,7 @@ interface PaymentConfirmScreenProps {
   tier?: SubscriptionTier;
   partnerName?: string;
   destination?: string;
+  detourSurcharge?: number;
   onConfirm?: () => void;
   onUpgradeClick?: () => void;
   onClose?: () => void;
@@ -27,6 +28,7 @@ export const PaymentConfirmScreen: React.FC<PaymentConfirmScreenProps> = ({
   tier = 'free',
   partnerName,
   destination,
+  detourSurcharge = 0,
   onConfirm,
   onUpgradeClick,
   onClose,
@@ -81,9 +83,20 @@ export const PaymentConfirmScreen: React.FC<PaymentConfirmScreenProps> = ({
         <div className="bg-white rounded-2xl p-4 border-2 border-[#0F2A4A]/20 space-y-3 shadow-2xs">
           {/* Fare Share (Informational — paid offline to driver) */}
           <div className="flex items-center justify-between text-xs text-gray-500 font-bold">
-            <span>Your fare share <span className="font-normal">(paid offline to driver)</span></span>
+            <span>Base fare share <span className="font-normal">(settle with host, offline)</span></span>
             <span className="font-mono text-sm text-gray-500">₹{fareShare.toFixed(2)}</span>
           </div>
+
+          {/* Detour Surcharge (Informational — settled offline) */}
+          {detourSurcharge > 0 && (
+            <div className="flex items-center justify-between text-xs text-amber-800 font-bold pt-2 border-t border-amber-100">
+              <div>
+                <span>Detour surcharge</span>
+                <span className="text-[10px] text-amber-600 ml-1 font-normal">(settle with host, offline)</span>
+              </div>
+              <span className="font-mono text-sm text-amber-800">₹{detourSurcharge.toFixed(2)}</span>
+            </div>
+          )}
 
           {/* CoPassage Platform Fee */}
           <div className="flex items-center justify-between text-xs text-gray-700 font-bold pt-2 border-t border-gray-100">
@@ -100,7 +113,7 @@ export const PaymentConfirmScreen: React.FC<PaymentConfirmScreenProps> = ({
 
           {/* Divider */}
           <div className="pt-3 border-t-2 border-[#0F2A4A]/10 flex items-center justify-between text-sm font-black text-[#0F2A4A]">
-            <span>Pay to CoPassage now</span>
+            <span>Charged now via Vault/Razorpay</span>
             <span className="font-mono text-xl text-[#0F2A4A]">
               {tier === 'unlimited' ? '₹0.00' : `₹${copassageFee.toFixed(2)}`}
             </span>
@@ -125,7 +138,7 @@ export const PaymentConfirmScreen: React.FC<PaymentConfirmScreenProps> = ({
                 </>
               ) : (
                 <>
-                  Upgrade to <strong>Plus</strong> for priority co-rider matching, 1.5 km corridor radar, and saved frequent routes.
+                  Upgrade to <strong>Plus</strong> for priority co-rider matching, 500m corridor radar, and saved frequent routes.
                 </>
               )}
             </p>

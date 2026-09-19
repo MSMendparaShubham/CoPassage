@@ -1,7 +1,9 @@
 import {
   MAX_RADIUS_KM,
   MAX_BEARING_DIFF_DEG,
-  MAX_DEST_DISTANCE_KM
+  MAX_DEST_DISTANCE_KM,
+  DETOUR_SURCHARGE_PER_KM,
+  DETOUR_SURCHARGE_FREE_THRESHOLD_KM
 } from '../constants';
 import { RiderPost } from '../types';
 
@@ -75,13 +77,13 @@ export function tokenOverlap(a: string, b: string): boolean {
  * 1. Excludes the current user's own broadcast (host_uid !== currentUserId).
  * 2. Enforces Origin Proximity: Haversine distance from rider's current GPS to
  *    post's current location must be <= maxRadiusKm.
- *    NOTE: maxRadiusKm is tier-dependent (Free = 1.0 km, Plus = 1.5 km, Unlimited = 2.0 km)
+ *    NOTE: maxRadiusKm is tier-dependent (Free = 0.25 km / 250m, Plus = 0.5 km / 500m, Unlimited/Pro = 1.0 km)
  *    and should always be passed explicitly from TIER_RADIUS_KM[tier].
  * 3. Proximity-only mode when no destination is set — bearing/destination filtering is
  *    additive, never a hard requirement to see nearby posts.
  * 4. When rider HAS set a destination:
  *    - Bearing alignment must be <= MAX_BEARING_DIFF_DEG (25°).
- *    - Destination-to-destination distance must be <= MAX_DEST_DISTANCE_KM (2.0 km).
+ *    - Destination-to-destination distance must be <= MAX_DEST_DISTANCE_KM (0.5 km) — HARD visibility gate.
  *    - If coordinates are unavailable, falls back to destination token overlap.
  */
 export function filterNearbyOpenPosts(
@@ -101,7 +103,7 @@ export function filterNearbyOpenPosts(
       return false;
     }
 
-    // Gate 1: Origin proximity — strictly <= maxRadiusKm (2.0 km)
+    // Gate 1: Origin proximity — strictly <= maxRadiusKm (tier radius, e.g. 250m / 500m / 1km)
     const originDistance = haversineDistanceKm(
       riderLat,
       riderLng,
@@ -145,7 +147,8 @@ export function filterNearbyOpenPosts(
       return false;
     }
 
-    // Gate 5: Destination Proximity Check
+    // Gate 5: Destination Proximity — HARD 500m visibility gate
+    // Anyone outside 500m destination proximity is completely excluded, not ranked lower.
     // Now only runs when postHasDestination is true
     const destDistance = haversineDistanceKm(riderDestLat, riderDestLng, post.dest_lat, post.dest_lng);
     if (destDistance > MAX_DEST_DISTANCE_KM) {
@@ -270,7 +273,7 @@ export interface CalculateMatchScoreParams {
   crossTrackKm?: number | null;  // Detour distance
   alongTrackKm?: number | null;  // Along-track position
   totalRouteKm?: number | null;  // Total route distance
-  maxRadiusKm: number;           // Tier-based radius, e.g. 1.0 / 1.5 / 2.0
+  maxRadiusKm: number;           // Tier-based radius, e.g. 0.25 / 0.5 / 1.0
 }
 
 /**
@@ -440,5 +443,47 @@ export function rankNearbyPostsForSeeker(
   });
 
   return ranked.sort((a, b) => b.matchScore - a.matchScore);
+}
+
+/**
+ * Calculates the excess distance (in km) the host must travel to pick up a specific
+ * seeker vs going directly to their destination.
+ *
+ * Uses the triangle inequality:
+ *   totalViaSeeker = hostOrigin→seekerPickup + seekerPickup→hostDest
+ *   excessKm = totalViaSeeker - directRouteKm
+ *
+ * Result is always >= 0 (clamped). A negative value would mean the seeker
+ * is perfectly on-path or closer, treated as 0 excess.
+ */
+export function calculateDetourExcessKm(
+  hostOriginLat: number,
+  hostOriginLng: number,
+  seekerLat: number,
+  seekerLng: number,
+  hostDestLat: number,
+  hostDestLng: number
+): number {
+  const directRouteKm = haversineDistanceKm(hostOriginLat, hostOriginLng, hostDestLat, hostDestLng);
+  const originToSeeker = haversineDistanceKm(hostOriginLat, hostOriginLng, seekerLat, seekerLng);
+  const seekerToDest = haversineDistanceKm(seekerLat, seekerLng, hostDestLat, hostDestLng);
+  const totalViaSeeker = originToSeeker + seekerToDest;
+  return Math.max(0, totalViaSeeker - directRouteKm);
+}
+
+/**
+ * Converts excess detour distance into a rupee surcharge amount.
+ *
+ * - First DETOUR_SURCHARGE_FREE_THRESHOLD_KM (300m) of detour is free
+ * - Beyond that, charges DETOUR_SURCHARGE_PER_KM (₹15) per km
+ * - Result is rounded to the nearest rupee
+ *
+ * This is a DISPLAY-ONLY value — settled directly between riders offline.
+ * CoPassage does NOT collect or process this payment.
+ */
+export function calculateDetourSurcharge(excessKm: number): number {
+  const chargeableExcess = Math.max(0, excessKm - DETOUR_SURCHARGE_FREE_THRESHOLD_KM);
+  const surcharge = chargeableExcess * DETOUR_SURCHARGE_PER_KM;
+  return Math.round(surcharge);
 }
 

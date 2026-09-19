@@ -41,14 +41,14 @@ The database consists of 5 core tables:
 - **Postgres Trigger** (`check_and_complete_ride`): Runs with `SECURITY DEFINER` privileges after either flag is updated. Checks both flags across both tables and atomically sets `rider_open_posts.status = 'completed'` when both are `true`. This ensures the ride completes correctly regardless of which party confirms second, without granting any client UPDATE permission on `rider_open_posts` beyond the host.
 - **10-Minute Timeout Fallback**: If one party confirms but the other does not respond within 10 minutes, the waiting party can call `supabase.rpc('auto_complete_abandoned_ride', { p_post_id: ... })` — a `SECURITY DEFINER` function that validates the caller is a participant before completing the ride.
 
-### 4. Route Matching — 2 km Radius & 85–100% Overlap Heuristic
-- **Proximity Threshold**: All matching is scoped to **2 km** (Haversine distance from user's live GPS to candidate broadcast origin). Leaflet map displays a 2,000-meter visual radius circle at zoom level 14.
+### 4. Route Matching — Tier Radius (250m–1km) & 85–100% Overlap Heuristic
+- **Proximity Threshold**: Matching is scoped strictly by subscriber tier: Free = **250m**, Plus = **500m**, Pro / Unlimited = **1.0 km** (`TIER_RADIUS_KM`). Leaflet map displays a dynamic visual radius circle corresponding to the commuter's tier.
 - **Route Overlap Heuristic** (when both user and candidate have destination coordinates):
   1. **Bearing Alignment**: Forward azimuth bearing from origin→destination computed using spherical trigonometry. Angular difference must be **≤ 25°**.
      ```
      bearing(lat1, lon1, lat2, lon2) = atan2(sin(Δlon)·cos(lat2), cos(lat1)·sin(lat2) − sin(lat1)·cos(lat2)·cos(Δlon))
      ```
-  2. **Destination Proximity**: Haversine distance between user's destination and candidate's destination must be **≤ 2.0 km**.
+  2. **Destination Proximity**: Haversine distance between user's destination and candidate's destination must be **≤ 0.5 km (500m)** — HARD visibility gate.
   3. **Fallback**: If coordinates are unavailable, token-based text matching on destination strings is used.
 
 ### 5. Map Lifecycle
@@ -85,17 +85,25 @@ CoPassage enforces three distinct commuter subscription tiers that govern spatia
 
 | Tier | Rides/month | Matching Radius | Matching Priority | Saved Routes | Platform Fee |
 |---|---|---|---|---|---|
-| **Free** | 5 | 1.0 km | Standard | No (Home/Work only) | 10% of fare share |
-| **Plus (₹89/mo)** | 20 | 1.5 km | Priority | Yes (Up to 5 routes) | Flat ₹25 |
-| **Unlimited (₹109/mo)** | Unlimited | 2.0 km | Priority | Yes (+ advanced route prefs) | Waived (₹0) |
+| **Free** | 5 | 250m (0.25 km) | Standard | No (Home/Work only) | 10% of fare share |
+| **Plus (₹89/mo)** | 20 | 500m (0.5 km) | Priority | Yes (Up to 5 routes) | Flat ₹25 |
+| **Unlimited (₹109/mo)** | Unlimited | 1.0 km | Priority | Yes (+ advanced route prefs) | Waived (₹0) |
 
 #### Code Enforcement Map
 
 1. **Origin Proximity Radius Scoping**:
-   - Centralized in `src/constants.ts` via `TIER_RADIUS_KM`: `free` = 1.0 km, `plus` = 1.5 km, `unlimited` = 2.0 km.
+   - Centralized in `src/constants.ts` via `TIER_RADIUS_KM`: `free` = 0.25 km (250m), `plus` = 0.5 km (500m), `unlimited` = 1.0 km.
    - Dynamic Leaflet circle overlay in `MapView.tsx` renders at `tierRadiusKm * 1000` meters.
    - `filterNearbyOpenPosts` filters incoming broadcasts strictly against the commuter's tier radius (both initial REST queries and live Realtime inserts).
-   - *Note*: Destination proximity (`MAX_DEST_DISTANCE_KM = 2.0 km`) and corridor bearing alignment (`MAX_BEARING_DIFF_DEG = 25°`) remain uniform system constants.
+   - *Note*: Destination proximity (`MAX_DEST_DISTANCE_KM = 0.5 km`) is a **HARD 500m visibility gate** — seekers outside 500m destination proximity are completely excluded, not just ranked lower. Corridor bearing alignment (`MAX_BEARING_DIFF_DEG = 25°`) remains a uniform system constant.
+
+   **Detour Surcharge System** (added alongside the 500m gate):
+   - Even among seekers who pass the 500m destination gate, some require the host to travel meaningful extra distance to reach the pickup point.
+   - `calculateDetourExcessKm()` in `geoUtils.ts` computes this excess using the triangle inequality: `(hostOrigin→seeker + seeker→hostDest) - directRoute`.
+   - `calculateDetourSurcharge()` converts excess distance into a rupee amount: first 300m free (`DETOUR_SURCHARGE_FREE_THRESHOLD_KM = 0.3`), then `DETOUR_SURCHARGE_PER_KM = ₹15` per additional km.
+   - This surcharge is **DISPLAY-ONLY** — settled directly between riders offline (same pattern as the base fare split). CoPassage does NOT collect or process this payment via Razorpay/Vault.
+   - `DetourSurchargeModal.tsx` gates the join request flow: when surcharge > ₹0, seeker must acknowledge before proceeding to the platform fee payment.
+   - Surcharge data (`detour_excess_km`, `detour_surcharge_amount`, `detour_surcharge_accepted`) is tracked on `join_requests` for transparency.
 
 2. **Monthly Ride Quotas & Atomic Postgres Enforcement**:
    - Table `rider_monthly_usage` tracks calendar-month usage (`YYYY-MM`) with row-level security.

@@ -12,9 +12,12 @@ import {
   checkIsInPath,
   haversineDistanceKm,
   calculateBearing,
-  getBearingDifference
+  getBearingDifference,
+  calculateDetourExcessKm,
+  calculateDetourSurcharge
 } from '../../services/geoUtils';
 import { PaymentMethodModal } from './PaymentMethodModal';
+import { DetourSurchargeModal } from './DetourSurchargeModal';
 
 interface JoinRequestModalProps {
   isOpen: boolean;
@@ -38,6 +41,8 @@ export const JoinRequestModal: React.FC<JoinRequestModalProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
+  const [isSurchargeModalOpen, setIsSurchargeModalOpen] = useState(false);
+  const [surchargeAccepted, setSurchargeAccepted] = useState(false);
 
   if (!isOpen || !post) return null;
 
@@ -52,10 +57,13 @@ export const JoinRequestModal: React.FC<JoinRequestModalProps> = ({
   let detourKm: number | null = (post as any)?.detourKm ?? null;
   let alongTrackKm: number | null = (post as any)?.alongTrackKm ?? null;
   let isInPath: boolean = (post as any)?.isInPath ?? true;
+  let detourExcessKm = 0;
+  let detourSurchargeAmount = 0;
+
+  const hostOriginLat = post.origin_lat ?? post.current_lat;
+  const hostOriginLng = post.origin_lng ?? post.current_lng;
 
   if (coords && post && (detourKm === null || (post as any).matchScore === undefined)) {
-    const hostOriginLat = post.origin_lat ?? post.current_lat;
-    const hostOriginLng = post.origin_lng ?? post.current_lng;
     const seekerDestLat = routeIntent?.destLat ?? routeIntent?.destinationCoords?.lat;
     const seekerDestLng = routeIntent?.destLng ?? routeIntent?.destinationCoords?.lng;
 
@@ -70,6 +78,14 @@ export const JoinRequestModal: React.FC<JoinRequestModalProps> = ({
       alongTrackKm = alongTrackDistanceKm(hostOriginLat, hostOriginLng, post.dest_lat, post.dest_lng, coords.lat, coords.lng, detourKm);
       const pathRes = checkIsInPath(hostOriginLat, hostOriginLng, post.dest_lat, post.dest_lng, coords.lat, coords.lng);
       isInPath = pathRes.isInPath;
+
+      // Compute detour excess distance and surcharge
+      detourExcessKm = calculateDetourExcessKm(
+        hostOriginLat, hostOriginLng,
+        coords.lat, coords.lng,
+        post.dest_lat, post.dest_lng
+      );
+      detourSurchargeAmount = calculateDetourSurcharge(detourExcessKm);
 
       if (seekerDestLat != null && seekerDestLng != null) {
         const sBearing = calculateBearing(coords.lat, coords.lng, seekerDestLat, seekerDestLng);
@@ -86,11 +102,17 @@ export const JoinRequestModal: React.FC<JoinRequestModalProps> = ({
       crossTrackKm: detourKm,
       alongTrackKm: alongTrackKm,
       totalRouteKm: totalRoute,
-      maxRadiusKm: TIER_RADIUS_KM[userTier] ?? 1.0,
+      maxRadiusKm: TIER_RADIUS_KM[userTier] ?? 0.25,
     });
   }
 
   const handleInitiateRequest = () => {
+    // If detour surcharge > 0 and not yet accepted, show surcharge consent first
+    if (detourSurchargeAmount > 0 && !surchargeAccepted) {
+      setIsSurchargeModalOpen(true);
+      return;
+    }
+    // Surcharge accepted (or was 0) — proceed to payment gate
     if (platformFee > 0) {
       setIsPaymentModalOpen(true);
     } else {
@@ -99,14 +121,27 @@ export const JoinRequestModal: React.FC<JoinRequestModalProps> = ({
     }
   };
 
+  const handleSurchargeAccepted = () => {
+    setSurchargeAccepted(true);
+    setIsSurchargeModalOpen(false);
+    // Now proceed to payment gate for platform fee
+    if (platformFee > 0) {
+      setIsPaymentModalOpen(true);
+    } else {
+      handleConfirmSendRequest('vault', 0, undefined, true);
+    }
+  };
+
   const handleConfirmSendRequest = async (
     paidVia: 'razorpay' | 'vault',
     feeAmount: number,
-    paymentId?: string
+    paymentId?: string,
+    acceptedOverride?: boolean
   ) => {
     setIsSubmitting(true);
     setError(null);
 
+    const isAccepted = acceptedOverride ?? surchargeAccepted;
     const reqLat = coords?.lat ?? null;
     const reqLng = coords?.lng ?? null;
     const reqDestLat = routeIntent?.destLat ?? routeIntent?.destinationCoords?.lat ?? null;
@@ -128,6 +163,10 @@ export const JoinRequestModal: React.FC<JoinRequestModalProps> = ({
           requester_fee_amount: feeAmount,
           requester_fee_paid_via: paidVia,
           requester_fee_status: 'paid',
+          detour_excess_km: detourExcessKm > 0 ? detourExcessKm : null,
+          detour_surcharge_amount: detourSurchargeAmount,
+          detour_surcharge_accepted: detourSurchargeAmount > 0 ? isAccepted : false,
+          detour_surcharge_accepted_at: detourSurchargeAmount > 0 && isAccepted ? new Date().toISOString() : null,
           created_at: new Date().toISOString(),
         };
         onRequestSent(demoReq);
@@ -152,6 +191,10 @@ export const JoinRequestModal: React.FC<JoinRequestModalProps> = ({
           requester_fee_amount: feeAmount,
           requester_fee_paid_via: paidVia,
           requester_fee_status: 'paid',
+          detour_excess_km: detourExcessKm > 0 ? detourExcessKm : null,
+          detour_surcharge_amount: detourSurchargeAmount,
+          detour_surcharge_accepted: detourSurchargeAmount > 0 ? isAccepted : false,
+          detour_surcharge_accepted_at: detourSurchargeAmount > 0 && isAccepted ? new Date().toISOString() : null,
         })
         .select()
         .single();
@@ -236,12 +279,13 @@ export const JoinRequestModal: React.FC<JoinRequestModalProps> = ({
             </div>
           </div>
 
-          {/* Fare Split Callout */}
+          {/* Fare Split Callout — Itemized: offline vs charged */}
           <div className="p-4 bg-morning-mist border border-teal-waters/20 rounded-2xl space-y-2.5">
+            {/* Base fare share (offline) */}
             <div className="flex items-center justify-between">
               <div>
-                <span className="text-xs font-bold text-teal-waters">Your Fair Split</span>
-                <p className="text-[11px] text-gray-600">Equal split among all co-riders</p>
+                <span className="text-xs font-bold text-teal-waters">Base Fare Share</span>
+                <p className="text-[11px] text-gray-500">Settle with host, offline</p>
               </div>
               <div className="text-right">
                 <span className="text-2xl font-extrabold text-teal-waters font-mono">₹{splitFare}</span>
@@ -249,8 +293,22 @@ export const JoinRequestModal: React.FC<JoinRequestModalProps> = ({
               </div>
             </div>
 
-            {/* Platform Fee Line Item */}
-            <div className="pt-2 border-t border-teal-waters/15 flex items-center justify-between text-xs text-gray-700">
+            {/* Detour surcharge (offline) — only shown if > 0 */}
+            {detourSurchargeAmount > 0 && (
+              <div className="pt-2 border-t border-amber-200 flex items-center justify-between text-xs">
+                <div>
+                  <span className="text-[11px] font-bold text-amber-800">Detour surcharge</span>
+                  <p className="text-[10px] text-amber-600">Settle with host, offline</p>
+                </div>
+                <span className="font-extrabold text-sm text-amber-800 font-mono">₹{detourSurchargeAmount}</span>
+              </div>
+            )}
+
+            {/* Divider — offline total vs charged */}
+            <div className="border-t-2 border-teal-waters/20" />
+
+            {/* Platform Fee Line Item (charged via Razorpay/Vault) */}
+            <div className="flex items-center justify-between text-xs text-gray-700">
               <span className="text-[11px] font-bold text-gray-500">
                 CoPassage fee ({userTier === 'unlimited' ? 'Unlimited' : userTier === 'plus' ? 'Plus — flat ₹10' : 'Free — max(₹15, 10%)'}):
               </span>
@@ -263,16 +321,16 @@ export const JoinRequestModal: React.FC<JoinRequestModalProps> = ({
               </span>
             </div>
 
-            {/* CoPassage Fee is what you pay through the app */}
+            {/* CoPassage Fee — charged now */}
             <div className="pt-2 border-t border-teal-waters/15 flex items-center justify-between text-xs font-bold text-teal-waters">
-              <span>Pay to CoPassage:</span>
+              <span>Charged now via Vault/Razorpay:</span>
               <span className="font-mono text-sm font-extrabold">
                 {userTier === 'unlimited' ? '₹0.00' : `₹${platformFee.toFixed(2)}`}
               </span>
             </div>
 
             <p className="text-[10px] text-gray-400">
-              Your ₹{splitFare} fare share is paid directly to the driver (cash/UPI offline).
+              Your ₹{splitFare}{detourSurchargeAmount > 0 ? ` + ₹${detourSurchargeAmount} surcharge` : ''} fare is paid directly to the host/driver (cash/UPI offline).
             </p>
           </div>
 
@@ -305,7 +363,17 @@ export const JoinRequestModal: React.FC<JoinRequestModalProps> = ({
         </div>
       </div>
 
-      {/* Payment Method Gate Modal */}
+      {/* Detour Surcharge Consent Modal — shown before payment when surcharge > 0 */}
+      <DetourSurchargeModal
+        isOpen={isSurchargeModalOpen}
+        onClose={() => setIsSurchargeModalOpen(false)}
+        onAccept={handleSurchargeAccepted}
+        excessMeters={detourExcessKm * 1000}
+        surchargeAmount={detourSurchargeAmount}
+        hostName={post.host_name}
+      />
+
+      {/* Payment Method Gate Modal — for platform fee ONLY (surcharge is offline) */}
       <PaymentMethodModal
         isOpen={isPaymentModalOpen}
         onClose={() => setIsPaymentModalOpen(false)}

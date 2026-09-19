@@ -34,7 +34,7 @@ import { useBroadcast } from '../../hooks/useBroadcast';
 import { RouteIntentData } from './RiderIntentFlow';
 import { PaymentMethodModal } from './PaymentMethodModal';
 
-import { MAX_RADIUS_KM, TIER_RADIUS_KM, calculatePlatformFee } from '../../constants';
+import { MAX_RADIUS_KM, TIER_RADIUS_KM, formatRadius, calculatePlatformFee } from '../../constants';
 import {
   filterNearbyOpenPosts,
   haversineDistanceKm,
@@ -46,7 +46,9 @@ import {
   checkIsInPath,
   calculateMatchScore,
   rankNearbyPostsForSeeker,
-  RankedRiderPost
+  RankedRiderPost,
+  calculateDetourExcessKm,
+  calculateDetourSurcharge
 } from '../../services/geoUtils';
 
 export interface HostRouteInfo {
@@ -90,7 +92,7 @@ function rankJoinRequests<T extends JoinRequestCandidate>(
 
   const scoredRequests = requests.map((req) => {
     const tierStr = req.subscription_tier || profilesByUid[req.requester_uid]?.subscription_tier || 'free';
-    const maxRadiusKm = TIER_RADIUS_KM[tierStr] ?? 1.0;
+    const maxRadiusKm = TIER_RADIUS_KM[tierStr] ?? 0.25;
 
     let originDist = 0;
     let bearingDiff = 0;
@@ -263,7 +265,7 @@ export const DirectMatchView: React.FC<DirectMatchViewProps> = ({
   } = useBroadcast(user, coords);
 
   const userTier = user.subscription_tier || 'free';
-  const tierRadiusKm = TIER_RADIUS_KM[userTier] ?? 1.0;
+  const tierRadiusKm = TIER_RADIUS_KM[userTier] ?? 0.25;
 
   // Auto-start broadcast if host chose "I Got an Auto" in intent flow
   useEffect(() => {
@@ -297,8 +299,8 @@ export const DirectMatchView: React.FC<DirectMatchViewProps> = ({
   const demoIncomingRequest: JoinRequest = {
     id: 'demo-req-001',
     post_id: 'demo-post-active',
-    requester_uid: 'demo-user-aarav',
-    requester_name: 'Aarav Patel',
+    requester_uid: 'demo-user-priya',
+    requester_name: 'Priya Sharma',
     requester_phone: '+91 98765 43210',
     requester_lat: coords.lat + 0.002,
     requester_lng: coords.lng + 0.002,
@@ -613,8 +615,8 @@ export const DirectMatchView: React.FC<DirectMatchViewProps> = ({
         <ReviewScreen
           user={user}
           postId="demo-post-review"
-          partnerName="Aarav Patel"
-          partnerUid="demo-user-aarav"
+          partnerName="Priya Sharma"
+          partnerUid="demo-user-priya"
           onDone={() => {
             if (onResetIntent) onResetIntent();
           }}
@@ -705,7 +707,7 @@ export const DirectMatchView: React.FC<DirectMatchViewProps> = ({
                   Live Broadcast Active
                 </span>
                 <span className="text-xs text-gray-500 font-medium ml-2 hidden sm:inline">
-                  Visible to commuters within {tierRadiusKm} km
+                  Visible to commuters within {formatRadius(tierRadiusKm)}
                 </span>
               </div>
             </div>
@@ -822,6 +824,11 @@ export const DirectMatchView: React.FC<DirectMatchViewProps> = ({
                         {req.detourKm != null && (
                           <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-red-50 text-red-700 border border-red-200 flex items-center gap-1 shadow-xs">
                             📍 {req.detourKm < 0.05 ? '0m detour' : req.detourKm < 1 ? `${(req.detourKm * 1000).toFixed(0)}m detour` : `${req.detourKm.toFixed(2)}km detour`}
+                          </span>
+                        )}
+                        {req.detour_surcharge_amount != null && req.detour_surcharge_amount > 0 && (
+                          <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-300 flex items-center gap-1 shadow-xs">
+                            +₹{req.detour_surcharge_amount} detour (settled directly)
                           </span>
                         )}
                       </div>
@@ -973,7 +980,7 @@ export const DirectMatchView: React.FC<DirectMatchViewProps> = ({
           </div>
           <div>
             <h4 className="text-xs sm:text-sm font-black text-[#0F2A4A] uppercase tracking-wider">
-              {tierRadiusKm} km Corridor Radar
+              {formatRadius(tierRadiusKm)} Corridor Radar
             </h4>
             <p className="text-[11px] text-gray-500 font-medium">
               {nearbyPosts.length} shared {nearbyPosts.length === 1 ? 'auto' : 'autos'} active nearby
@@ -1016,7 +1023,7 @@ export const DirectMatchView: React.FC<DirectMatchViewProps> = ({
           <div className="py-20 text-center bg-white rounded-3xl border border-[#0F2A4A]/10 shadow-xs space-y-3">
             <RefreshCw className="w-9 h-9 mx-auto text-[#0F2A4A] animate-spin" />
             <p className="font-extrabold text-sm text-[#0F2A4A]">Scanning corridor for active autos...</p>
-            <p className="text-xs text-gray-500">Checking within {tierRadiusKm} km of your live GPS.</p>
+            <p className="text-xs text-gray-500">Checking within {formatRadius(tierRadiusKm)} of your live GPS.</p>
           </div>
         ) : nearbyPosts.length === 0 ? (
           <div className="py-16 px-6 text-center bg-white rounded-3xl border-2 border-dashed border-[#0F2A4A]/20 shadow-xs space-y-4">
@@ -1029,7 +1036,7 @@ export const DirectMatchView: React.FC<DirectMatchViewProps> = ({
             <div className="max-w-md mx-auto space-y-1">
               <h3 className="text-lg font-black text-[#0F2A4A]">Searching for Available Autos</h3>
               <p className="text-xs sm:text-sm text-gray-600 leading-relaxed font-medium">
-                No other commuters are currently broadcasting an auto along this route right now. We are actively scanning your {tierRadiusKm} km corridor.
+                No other commuters are currently broadcasting an auto along this route right now. We are actively scanning your {formatRadius(tierRadiusKm)} corridor.
               </p>
             </div>
 
@@ -1120,6 +1127,29 @@ export const DirectMatchView: React.FC<DirectMatchViewProps> = ({
                     {userTier === 'unlimited' ? '₹0 (Waived)' : userTier === 'plus' ? 'Flat ₹25' : `₹${calculatePlatformFee(splitFare, userTier)} (10%)`}
                   </span>
                 </div>
+
+                {/* Detour surcharge estimate — only shown if host has destination coords */}
+                {(() => {
+                  if (post.dest_lat != null && post.dest_lng != null) {
+                    const hostOLat = post.origin_lat ?? post.current_lat;
+                    const hostOLng = post.origin_lng ?? post.current_lng;
+                    const excessKm = calculateDetourExcessKm(
+                      hostOLat, hostOLng,
+                      coords.lat, coords.lng,
+                      post.dest_lat, post.dest_lng
+                    );
+                    const surcharge = calculateDetourSurcharge(excessKm);
+                    if (surcharge > 0) {
+                      return (
+                        <div className="flex items-center justify-between text-[11px] font-bold text-amber-700 px-1">
+                          <span>Est. detour surcharge (settle offline):</span>
+                          <span className="font-extrabold">+₹{surcharge}</span>
+                        </div>
+                      );
+                    }
+                  }
+                  return null;
+                })()}
 
                 <button
                   onClick={() => {

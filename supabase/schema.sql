@@ -64,6 +64,10 @@ create table if not exists join_requests (
   requester_lng     float8,
   rider_marked_complete boolean default false,
   status            text default 'pending', -- pending | accepted | rejected
+  detour_excess_km  numeric,                -- km of excess distance host must travel
+  detour_surcharge_amount numeric default 0, -- ₹ surcharge (display-only, settled offline)
+  detour_surcharge_accepted boolean default false,
+  detour_surcharge_accepted_at timestamptz,
   created_at        timestamptz default now()
 );
 

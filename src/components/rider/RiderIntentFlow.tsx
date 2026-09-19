@@ -17,7 +17,7 @@ import { AuthedUser } from '../../types';
 import { LocationCoordinates } from '../../hooks/useGeolocation';
 import { LocationAutocomplete } from './LocationAutocomplete';
 import { getRiderMonthlyUsage } from '../../services/subscriptionUsage';
-import { TIER_RADIUS_KM } from '../../constants';
+import { TIER_RADIUS_KM, formatRadius } from '../../constants';
 
 export interface RouteIntentData {
   intent: 'have_auto' | 'need_auto';
@@ -211,7 +211,7 @@ export const RiderIntentFlow: React.FC<RiderIntentFlowProps> = ({
                           : 'Free Community Plan'}
                       </span>
                       <span className="text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded-md bg-[#CAFFA6] text-[#0F2A4A] border border-[#0F2A4A]/20">
-                        {TIER_RADIUS_KM[user.subscription_tier || 'free']} km Radar
+                        {formatRadius(TIER_RADIUS_KM[user.subscription_tier || 'free'] ?? 0.25)} Radar
                       </span>
                     </div>
                   </div>
@@ -257,10 +257,10 @@ export const RiderIntentFlow: React.FC<RiderIntentFlowProps> = ({
 
               <p className="text-xs text-gray-500 leading-relaxed">
                 {user.subscription_tier === 'unlimited'
-                  ? 'Unlimited shared rides, 2.0 km matching radius, ₹0 platform fee, and advanced route preferences active.'
+                  ? 'Unlimited shared rides, 1 km matching radius, ₹0 platform fee, and advanced route preferences active.'
                   : user.subscription_tier === 'plus'
-                   ? '20 shared rides/mo, 1.5 km matching radius, flat ₹10 CoPassage fee, and saved frequent routes active.'
-                  : 'Free plan: 5 rides/mo, 1.0 km matching radius, and convenience fee of max(₹15, 10%). Upgrade to Plus for 20 rides and priority matching.'}
+                  ? '20 shared rides/mo, 500m matching radius, flat ₹10 CoPassage fee, and saved frequent routes active.'
+                  : 'Free plan: 5 rides/mo, 250m matching radius, and convenience fee of max(₹15, 10%). Upgrade to Plus for 20 rides and priority matching.'}
               </p>
             </div>
           </div>

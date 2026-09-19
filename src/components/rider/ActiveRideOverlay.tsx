@@ -334,6 +334,13 @@ export const ActiveRideOverlay: React.FC<ActiveRideOverlayProps> = ({
                 Split Per Person
               </span>
               <span className="text-2xl font-black text-[#0F2A4A] font-mono">₹{splitFare}</span>
+              {matchedRequest?.detour_surcharge_amount != null && matchedRequest.detour_surcharge_amount > 0 && (
+                <span className="text-[10px] text-amber-700 font-bold block">
+                  {isHost
+                    ? `+₹${matchedRequest.detour_surcharge_amount} detour (from co-rider)`
+                    : `+₹${matchedRequest.detour_surcharge_amount} detour surcharge`}
+                </span>
+              )}
             </div>
           </div>
         </div>
@@ -349,6 +356,18 @@ export const ActiveRideOverlay: React.FC<ActiveRideOverlayProps> = ({
               Equal split • Pay offline / UPI
             </span>
           </div>
+
+          {/* Detour surcharge line (offline) — only if applicable */}
+          {matchedRequest?.detour_surcharge_amount != null && matchedRequest.detour_surcharge_amount > 0 && (
+            <div className="pt-2 border-t border-amber-200 flex items-center justify-between text-[11px] text-amber-800">
+              <span className="font-bold">
+                {isHost
+                  ? 'Co-rider owes extra for detour (settle directly):'
+                  : 'Detour surcharge (settle with host, offline):'}
+              </span>
+              <span className="font-extrabold">₹{matchedRequest.detour_surcharge_amount}</span>
+            </div>
+          )}
 
           <div className="pt-2 border-t border-[#0F2A4A]/10 flex items-center justify-between text-[11px] text-gray-600">
             <span>Platform Fee ({user.subscription_tier === 'unlimited' ? 'Unlimited' : user.subscription_tier === 'plus' ? 'Plus' : 'Free'}):</span>

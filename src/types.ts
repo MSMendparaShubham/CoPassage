@@ -239,6 +239,10 @@ export interface JoinRequest {
   host_fee_amount?: number | null;
   host_fee_paid_via?: 'razorpay' | 'vault' | null;
   host_fee_status?: 'unpaid' | 'paid' | 'refunded' | null;
+  detour_excess_km?: number | null;
+  detour_surcharge_amount?: number | null;
+  detour_surcharge_accepted?: boolean;
+  detour_surcharge_accepted_at?: string | null;
   created_at: string;
 }
 

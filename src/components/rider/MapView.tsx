@@ -16,6 +16,7 @@ import {
   MAX_RADIUS_METERS,
   DEFAULT_MAP_ZOOM,
   TIER_RADIUS_KM,
+  formatRadius,
   calculatePlatformFee,
 } from '../../constants';
 import {
@@ -244,7 +245,7 @@ export const MapView: React.FC<MapViewProps> = ({
 
   // Derive tier-dependent matching radius
   const userTier = user.subscription_tier || 'free';
-  const tierRadiusKm = TIER_RADIUS_KM[userTier] ?? 1.0;
+  const tierRadiusKm = TIER_RADIUS_KM[userTier] ?? 0.25;
   const tierRadiusMeters = tierRadiusKm * 1000;
 
   // Host payment gate state
@@ -578,7 +579,7 @@ export const MapView: React.FC<MapViewProps> = ({
         <div className={`absolute ${routeIntent ? 'top-[72px]' : 'top-3'} left-3 z-20`}>
           <div className="px-3.5 py-2 bg-white/95 backdrop-blur-md rounded-2xl shadow-lg border border-teal-waters/15 flex items-center gap-2 text-xs font-bold text-teal-waters">
             <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
-            <span>{nearbyPosts.length} {nearbyPosts.length === 1 ? 'auto' : 'autos'} within {tierRadiusKm} km</span>
+            <span>{nearbyPosts.length} {nearbyPosts.length === 1 ? 'auto' : 'autos'} within {formatRadius(tierRadiusKm)}</span>
           </div>
         </div>
       )}
@@ -592,7 +593,7 @@ export const MapView: React.FC<MapViewProps> = ({
             </div>
             <h4 className="text-sm font-bold text-gray-900 mb-1">No autos heading your way</h4>
             <p className="text-xs text-gray-500 leading-relaxed">
-              No one nearby within {tierRadiusKm} km is heading in the same direction right now. Try again in a moment.
+              No one nearby within {formatRadius(tierRadiusKm)} is heading in the same direction right now. Try again in a moment.
             </p>
           </div>
         </div>

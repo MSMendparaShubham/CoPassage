@@ -104,7 +104,7 @@ export const AboutPage: React.FC = () => {
               </tr>
               <tr className="hover:bg-[#F7F9E1]/50">
                 <td className="p-3.5 font-bold text-[#0F2A4A]">Route Matching</td>
-                <td className="p-3.5 font-bold text-emerald-800">2 km radius + 25° corridor bearing + detour scoring</td>
+                <td className="p-3.5 font-bold text-emerald-800">Tier radar (250m–1km) + 25° corridor bearing + detour scoring</td>
                 <td className="p-3.5 text-gray-500">Arbitrary point-to-point dispatch</td>
               </tr>
             </tbody>
