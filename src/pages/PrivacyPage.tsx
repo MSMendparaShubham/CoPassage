@@ -133,6 +133,9 @@ export const PrivacyPage: React.FC = () => {
           CoPassage does not store complete debit/credit card numbers or UPI MPINs on our servers. All financial payment operations are handled securely through Razorpay. 
           Your in-app CoPassage Vault balance is secured by atomic PostgreSQL transaction constraints and Row-Level Security.
         </p>
+        <p className="text-xs text-gray-600 font-medium">
+          In accordance with our <Link to="/terms" className="text-[#0F2A4A] underline font-bold">Terms of Service</Link>, Vault funds (from top-ups or automatic cancellation refund credits) can only be used for platform convenience fees or plan upgrades within CoPassage and cannot be withdrawn or refunded to your original payment method.
+        </p>
       </section>
 
       {/* Section 7: Data Retention */}
